@@ -14,6 +14,39 @@ const PREFS: Record<string, { names: string[]; pitch: number; rate: number }> = 
 const audioCache = new Map<string, Promise<string | null>>()
 let current: { stop: () => void } | null = null
 
+// ─── Loudness, so the speaking interviewer can move with their voice ──────────
+// Server audio is measured for real through an AnalyserNode. Browser voices and silent captions give no audio
+// to measure, so a speech-like rhythm stands in while they talk.
+let ctx: AudioContext | null = null
+let analyser: AnalyserNode | null = null
+let samples: Uint8Array<ArrayBuffer> | null = null
+let source: 'none' | 'audio' | 'rhythm' = 'none'
+let rhythmSince = 0
+
+/** A speech-like loudness curve (syllables with the odd pause) for voices that can't be measured. */
+export function speechRhythm(t: number) {
+  const syllables = Math.abs(Math.sin(t * 8.7)) * (0.55 + 0.45 * Math.sin(t * 2.1 + 1))
+  const pauses = Math.sin(t * 0.9) > -0.85 ? 1 : 0.15
+  return Math.max(0, Math.min(1, 0.15 + 0.7 * syllables * pauses))
+}
+
+function measure(el: HTMLAudioElement) {
+  try {
+    if (!ctx || ctx.state !== 'running') return false
+    if (!analyser) {
+      analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      analyser.smoothingTimeConstant = 0.5
+      analyser.connect(ctx.destination)
+      samples = new Uint8Array(new ArrayBuffer(analyser.fftSize))
+    }
+    ctx.createMediaElementSource(el).connect(analyser)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function readingMs(text: string) {
   return Math.max(1400, text.length * 62)
 }
@@ -32,6 +65,29 @@ export const voice = {
   enabled: true,
   server: false,
 
+  /** Call from a user gesture, so the audio context may run and the voice can be measured. */
+  unlock() {
+    try {
+      ctx ??= new AudioContext()
+      if (ctx.state === 'suspended') void ctx.resume()
+    } catch {}
+  },
+
+  /** How loud the current line is right now, 0 to 1. */
+  level(): number {
+    if (source === 'audio' && analyser && samples) {
+      analyser.getByteTimeDomainData(samples)
+      let sum = 0
+      for (let i = 0; i < samples.length; i++) {
+        const v = (samples[i] - 128) / 128
+        sum += v * v
+      }
+      return Math.min(1, Math.sqrt(sum / samples.length) * 4.2)
+    }
+    if (source === 'rhythm') return speechRhythm((performance.now() - rhythmSince) / 1000)
+    return 0
+  },
+
   prefetch(text: string, name: string) {
     if (!this.enabled || !this.server || !text) return
     const key = `${name}:${text}`
@@ -48,6 +104,7 @@ export const voice = {
   stop() {
     current?.stop()
     current = null
+    source = 'none'
     if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
   },
 
@@ -66,14 +123,20 @@ export const voice = {
       const total = readingMs(text)
       const start = performance.now()
       let raf = 0
+      source = 'rhythm'
+      rhythmSince = start
+      const finish = () => {
+        source = 'none'
+        resolve()
+      }
       const tick = () => {
         const f = Math.min(1, (performance.now() - start) / total)
         onProgress?.(f)
         if (f < 1) raf = requestAnimationFrame(tick)
-        else resolve()
+        else finish()
       }
       raf = requestAnimationFrame(tick)
-      current = { stop: () => (cancelAnimationFrame(raf), onProgress?.(1), resolve()) }
+      current = { stop: () => (cancelAnimationFrame(raf), onProgress?.(1), finish()) }
     })
   },
 
@@ -81,8 +144,11 @@ export const voice = {
     return new Promise<void>(resolve => {
       const el = new Audio(url)
       let raf = 0
+      source = measure(el) ? 'audio' : 'rhythm'
+      rhythmSince = performance.now()
       const done = () => {
         cancelAnimationFrame(raf)
+        source = 'none'
         onProgress?.(1)
         resolve()
       }
@@ -115,9 +181,12 @@ export const voice = {
       let boundary = false
       let raf = 0
       let finished = false
+      source = 'rhythm'
+      rhythmSince = start
       const done = () => {
         if (finished) return
         finished = true
+        source = 'none'
         cancelAnimationFrame(raf)
         onProgress?.(1)
         resolve()

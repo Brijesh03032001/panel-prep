@@ -22,8 +22,9 @@ function getRecognition(): SpeechRecognitionLike | null {
   return Ctor ? new (Ctor as new () => SpeechRecognitionLike)() : null
 }
 
-// Records the answer (kept locally for the Highlight Reel) and turns it into text. With CreateAI configured,
-// transcription runs on ASU-approved Whisper; otherwise the browser's speech recognition gives live captions.
+// Records the answer (kept locally for the Highlight Reel) and turns it into text. The browser's speech recognition
+// shows the words live while the student speaks; with CreateAI configured, its Whisper transcript replaces them
+// when recording stops, because it is more accurate.
 export function useRecorder(serverSTT: boolean) {
   const [state, setState] = useState<RecState>('idle')
   const [interim, setInterim] = useState('')
@@ -70,7 +71,7 @@ export function useRecorder(serverSTT: boolean) {
       media.current = { stream, recorder, chunks, ctx }
       setAnalyser(node)
 
-      if (!serverSTT) {
+      {
         const rec = getRecognition()
         if (rec) {
           rec.continuous = true

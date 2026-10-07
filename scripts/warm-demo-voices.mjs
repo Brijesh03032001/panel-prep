@@ -29,11 +29,20 @@ async function call(path, body) {
 const lines = new Map()
 const say = (text, voice) => text && lines.set(`${voice}:${text}`, { text, voice })
 
-// Each path takes a different Lifeline branch so every scripted hint gets voiced.
+// Must match coachSpeech() in lib/store.ts, so the cached file is found for Sam's Lifeline.
+const coachLine = c => `${c.encouragement} Here's how to answer. ${c.outline.map((o, i) => `${['First', 'Then', 'Finally'][i] ?? 'And'}, ${o.replace(/\.$/, '')}.`).join(' ')}`
+
+// Each plan takes a different branch (Lifeline after an answer, before one, or Move on) so every scripted
+// question and every coaching line gets voiced. `stop` ends the interview early, which voices the
+// "didn't get to ask" lines of the debrief.
 const PATHS = [
-  ['lifeline-after', 'answer', 'answer'],
-  ['move-on', 'lifeline-after', 'answer'],
-  ['move-on', 'move-on', 'lifeline-before'],
+  { steps: ['lifeline'] },
+  { steps: ['move-on', 'lifeline'] },
+  { steps: ['move-on', 'move-on', 'lifeline'] },
+  { steps: ['move-on', 'move-on', 'move-on', 'move-on', 'pre'] },
+  { steps: ['lifeline'], stop: 1 },
+  { steps: ['lifeline'], stop: 2 },
+  { steps: ['move-on'], stop: 1 },
 ]
 
 for (const plan of PATHS) {
@@ -42,21 +51,22 @@ for (const plan of PATHS) {
   let { session } = await call('/api/sessions', form)
   ;({ session } = await call(`/api/sessions/${session.id}/panel`))
   const voiceOf = id => session.panel.find(p => p.id === id).voice
-  for (const p of session.panel) say(`I'm ${p.name.split(' ')[0]}, ${p.title}. ${p.joinReason}`, p.voice)
+  // Must match introOf() in components/pp/screens/assemble.tsx.
+  for (const p of session.panel) say(p.intro || `Hi, I'm ${p.name}, ${p.title}.`, p.voice)
 
   let { turn } = await call(`/api/sessions/${session.id}/turn`)
-  for (const step of plan) {
-    if (!turn) break
+  for (let q = 0; turn && q < (plan.stop ?? 99); q++) {
+    const step = plan.steps[q] ?? 'move-on'
     say(turn.question, voiceOf(turn.interviewerId))
-    if (step === 'lifeline-before') {
-      const hint = await call(`/api/sessions/${session.id}/lifeline`, { turnId: turn.id })
-      say(`${hint.encouragement} ${hint.hint}`, COACH_VOICE)
+    if (step === 'pre' && turn.coachable !== false) {
+      const { coaching } = await call(`/api/sessions/${session.id}/lifeline`, { turnId: turn.id })
+      say(coachLine(coaching), COACH_VOICE)
     }
     let events = await call(`/api/sessions/${session.id}/answer`, { turnId: turn.id, answer: 'scripted demo answer' })
     if (events.some(e => e.type === 'decision')) {
-      if (step === 'lifeline-after') {
-        const hint = await call(`/api/sessions/${session.id}/lifeline`, { turnId: turn.id })
-        say(`${hint.encouragement} ${hint.hint}`, COACH_VOICE)
+      if (step === 'lifeline') {
+        const { coaching } = await call(`/api/sessions/${session.id}/lifeline`, { turnId: turn.id })
+        say(coachLine(coaching), COACH_VOICE)
         events = await call(`/api/sessions/${session.id}/answer`, { turnId: turn.id, answer: 'scripted demo retry' })
       } else {
         const next = await call(`/api/sessions/${session.id}/next`, { turnId: turn.id })
@@ -65,6 +75,57 @@ for (const plan of PATHS) {
     }
     turn = events.find(e => e.type === 'next')?.turn ?? null
   }
+  const done = await call(`/api/sessions/${session.id}/finish`)
+  for (const h of done.session.outcome.huddle) say(h.line, voiceOf(h.interviewerId))
+  await fetch(`${BASE}/api/sessions/${session.id}`, { method: 'DELETE' })
+}
+
+// Ryan's staged pitch run (lib/server/demo/ryan.ts) goes through the live form, so it is voiced the same way: his
+// resume text triggers the script. Each plan ends at a different point, with or without the Lifeline on Leo's
+// follow-up (the pitch path), so every scripted question, Sam's coaching and every huddle line he can reach gets
+// voiced. Answering past Marcus's first question would reach the live model.
+const RYAN_RESUME = `RYAN BROOKS
+EXPERIENCE
+Web Developer (part-time), Copper Canyon Credit Union
+- Set up CI with GitHub Actions and preview deploys on every pull request
+PROJECTS
+ShelfLife, grocery expiry tracker
+- Wrote unit and integration tests with Jest and React Testing Library (90% coverage)`
+
+const RYAN_PATHS = [
+  { steps: [], stop: 1 },
+  { steps: [], stop: 2 },
+  { steps: [], stop: 3 },
+  { steps: ['move-on', 'lifeline'], stop: 2 },
+  { steps: ['move-on', 'lifeline'], stop: 3 },
+]
+
+for (const plan of RYAN_PATHS) {
+  const form = new FormData()
+  form.append('mode', 'live')
+  form.append('text', RYAN_RESUME)
+  form.append('roleKey', 'frontend')
+  form.append('level', 'New Grad')
+  let { session } = await call('/api/sessions', form)
+  if (session.scenario !== 'ryan') throw new Error("Ryan's resume didn't start the staged run. Check lib/server/demo/staged.ts.")
+  ;({ session } = await call(`/api/sessions/${session.id}/panel`))
+  const voiceOf = id => session.panel.find(p => p.id === id).voice
+  for (const p of session.panel) say(p.intro || `Hi, I'm ${p.name}, ${p.title}.`, p.voice)
+
+  let { turn } = await call(`/api/sessions/${session.id}/turn`)
+  for (let q = 0; turn && q < plan.stop; q++) {
+    say(turn.question, voiceOf(turn.interviewerId))
+    let events = await call(`/api/sessions/${session.id}/answer`, { turnId: turn.id, answer: 'scripted demo answer' })
+    if (events.some(e => e.type === 'decision') && plan.steps[q] === 'lifeline') {
+      const { coaching } = await call(`/api/sessions/${session.id}/lifeline`, { turnId: turn.id })
+      say(coachLine(coaching), COACH_VOICE)
+      events = await call(`/api/sessions/${session.id}/answer`, { turnId: turn.id, answer: 'scripted demo retry' })
+      turn = events.find(e => e.type === 'next')?.turn ?? null
+    } else if (events.some(e => e.type === 'decision')) turn = (await call(`/api/sessions/${session.id}/next`, { turnId: turn.id })).turn ?? null
+    else turn = events.find(e => e.type === 'next')?.turn ?? null
+  }
+  // The question already queued when the presenter ends (Marcus's follow-up on the pitch path).
+  if (turn) say(turn.question, voiceOf(turn.interviewerId))
   const done = await call(`/api/sessions/${session.id}/finish`)
   for (const h of done.session.outcome.huddle) say(h.line, voiceOf(h.interviewerId))
   await fetch(`${BASE}/api/sessions/${session.id}`, { method: 'DELETE' })
@@ -96,4 +157,13 @@ for (const { text, voice } of lines.values()) {
     copied++
   }
 }
-console.log(`Cached ${ok} of ${lines.size} demo voice lines; ${copied} copied to assets/demo-voices for deploys.`)
+// Drop voices for lines the script no longer uses, so the repo only ships what the demo can play.
+const keep = new Set([...lines.values()].map(({ text, voice }) => fileFor(voice, text)))
+let pruned = 0
+for (const f of fs.readdirSync(DEMO)) {
+  if (f.endsWith('.mp3') && !keep.has(f)) {
+    fs.unlinkSync(path.join(DEMO, f))
+    pruned++
+  }
+}
+console.log(`Cached ${ok} of ${lines.size} demo voice lines; ${copied} copied to assets/demo-voices for deploys, ${pruned} unused removed.`)

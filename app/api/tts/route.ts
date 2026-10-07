@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     return new Response(new Uint8Array(audio), { headers: { 'Content-Type': contentType, 'Cache-Control': 'no-store' } })
   } catch (err) {
     // The browser falls back to its own voices, so a failed line never blocks the interview.
-    if (!(err instanceof RateLimitError)) console.error('[panel-prep] tts', err)
+    if (!(err instanceof RateLimitError)) console.error('[mockify] tts', err)
     return Response.json({ error: errorMessage(err) }, { status: err instanceof RateLimitError ? 429 : 502 })
   }
 }

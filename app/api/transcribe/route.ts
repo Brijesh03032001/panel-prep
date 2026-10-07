@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const text = await createAITranscribe(Buffer.from(await audio.arrayBuffer()))
     return NextResponse.json({ text })
   } catch (err) {
-    console.error('[panel-prep] transcribe', err)
+    console.error('[mockify] transcribe', err)
     return NextResponse.json({ error: errorMessage(err) }, { status: 502 })
   }
 }
