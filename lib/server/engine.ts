@@ -1,21 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import { DOMAINS, SEATS } from '../catalog'
+import { demoDebrief, demoFixture } from './demo/maya'
+import { stagedDebrief } from './demo/staged'
 import { callJSON } from './llm'
-import { auditPrompt, coachPrompt, evaluatePrompt, huddlePrompt, panelPrompt, questionPrompt } from './prompts'
+import { auditPrompt, coachPrompt, evaluatePrompt, followUpPrompt, huddlePrompt, panelPrompt, questionPrompt } from './prompts'
 import { saveSession } from './repo'
 import {
   completedTurns,
   computeStats,
   deltaFor,
+  followUpConcern,
   linesMentioned,
   normalizeReaction,
   normalizeStrength,
-  selectNext,
-  shouldEnd,
+  planNext,
   verdictFor,
+  verifyAnchor,
   verifyEvidence,
 } from './scoring'
 import type {
+  Coaching,
   Concern,
   EvalResult,
   Interviewer,
@@ -38,7 +42,7 @@ export class EngineError extends Error {
 const str = (v: unknown, max = 400) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const arr = <T = unknown>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)))
-const ctx = (s: SessionDoc) => ({ mode: s.mode, sessionId: s.id })
+const ctx = (s: SessionDoc) => ({ mode: s.mode, sessionId: s.id, scenario: s.scenario ?? null })
 
 const interviewerOf = (s: SessionDoc, id: string) => {
   const p = s.panel.find(x => x.id === id)
@@ -56,15 +60,21 @@ const concernOf = (p: Interviewer, id: string) => {
 const questionNumber = (s: SessionDoc, turn: Turn) =>
   s.turns.filter(t => t.interviewerId === turn.interviewerId && t.index <= turn.index).length
 
+// Demo turns are named beats of Maya's script; live turns are keyed by interviewer and question number.
+const beat = (s: SessionDoc, turn: Turn) => turn.script ?? `${turn.interviewerId}:${questionNumber(s, turn)}`
+
+const answersOf = (s: SessionDoc) => s.turns.flatMap(t => t.attempts.map(a => a.answer))
+
 // ─── Session creation: Resume Audit ──────────────────────────────────────────
 
 interface AuditRaw {
   headline?: unknown
-  lines?: { section?: unknown; text?: unknown; flag?: unknown; note?: unknown }[]
+  lines?: { section?: unknown; entry?: { title?: unknown; detail?: unknown; date?: unknown } | null; text?: unknown; flag?: unknown; note?: unknown }[]
+  title?: unknown
   missing?: { skill?: unknown; why?: unknown }[]
 }
 
-export async function createSession(input: { resumeText: string; setup: SessionSetup; mode: Mode }) {
+export async function createSession(input: { resumeText: string; setup: SessionSetup; mode: Mode; scenario?: string | null }) {
   const session: SessionDoc = {
     id: randomUUID(),
     kind: 'full',
@@ -73,15 +83,16 @@ export async function createSession(input: { resumeText: string; setup: SessionS
     sample: false,
     createdAt: Date.now(),
     status: 'audited',
-    config: input.mode === 'demo' ? { maxTurns: 3, maxQuestionsPerInterviewer: 2 } : { maxTurns: 6, maxQuestionsPerInterviewer: 2 },
+    // Every panelist asks twice: an opening question, then a follow-up on what the student actually said.
+    config: { maxTurns: 6, maxQuestionsPerInterviewer: 2 },
     setup: input.setup,
     resume: { headline: '', lines: [], missing: [] },
     panel: [],
     turns: [],
     current: null,
-    pendingFollowUp: null,
     lifeline: { used: false, turnId: null },
     outcome: null,
+    scenario: input.mode === 'live' ? input.scenario ?? null : null,
   }
 
   const raw = await callJSON<AuditRaw>(ctx(session), {
@@ -96,7 +107,11 @@ export async function createSession(input: { resumeText: string; setup: SessionS
 
   const flags: LineFlag[] = ['strength', 'gap', 'shaky']
   session.resume.lines = arr<NonNullable<AuditRaw['lines']>[number]>(raw.lines)
-    .map(l => ({ section: str(l.section, 40) || 'Other', text: str(l.text, 220), flag: l.flag, note: str(l.note, 80) }))
+    .map(l => {
+      const title = str(l.entry?.title, 90)
+      const entry = title ? { title, detail: str(l.entry?.detail, 120) || null, date: str(l.entry?.date, 40) || null } : null
+      return { section: str(l.section, 40) || 'Other', entry, text: str(l.text, 220), flag: l.flag, note: str(l.note, 80) }
+    })
     .filter(l => l.text.length > 2)
     .slice(0, 24)
     .map((l, i): ResumeLine => {
@@ -104,6 +119,7 @@ export async function createSession(input: { resumeText: string; setup: SessionS
       return {
         id: `L${i + 1}`,
         section: l.section,
+        entry: l.entry,
         text: l.text,
         flag,
         flagNote: flag ? l.note || null : null,
@@ -114,6 +130,8 @@ export async function createSession(input: { resumeText: string; setup: SessionS
     })
   if (session.resume.lines.length < 3) throw new EngineError("We couldn't find enough resume content to build a panel from.", 422)
   session.resume.headline = str(raw.headline, 220)
+  // Only the scripted demo carries a name; live resumes never store the student's name.
+  session.resume.title = input.mode === 'demo' ? str(raw.title, 60) || null : null
   session.resume.missing = arr<NonNullable<AuditRaw['missing']>[number]>(raw.missing)
     .map(m => ({ skill: str(m.skill, 40), why: str(m.why, 160) }))
     .filter(m => m.skill)
@@ -130,6 +148,7 @@ interface PanelRaw {
     name?: unknown
     title?: unknown
     joinReason?: unknown
+    intro?: unknown
     lookingFor?: unknown
     persona?: unknown
     startConfidence?: unknown
@@ -168,6 +187,7 @@ export async function buildPanel(session: SessionDoc) {
       color: SEATS[seat].color,
       voice: SEATS[seat].voice,
       joinReason: str(p.joinReason, 200),
+      intro: str(p.intro, 240) || undefined,
       lookingFor: str(p.lookingFor, 240),
       persona: str(p.persona, 900),
       startConfidence: start,
@@ -191,32 +211,40 @@ export function currentTurn(session: SessionDoc) {
 export async function startTurn(session: SessionDoc): Promise<{ turn: Turn } | { end: true }> {
   const existing = currentTurn(session)
   if (existing) return { turn: existing }
-  if (session.outcome || shouldEnd(session)) return { end: true }
+  if (session.outcome) return { end: true }
+  const move = planNext(session)
+  if (!move) return { end: true }
 
-  let interviewer: Interviewer
+  const interviewer = move.interviewer
   let concern: Concern
   let question: string
+  let anchor: string | null = null
   let buildsOn: string | null = null
-  let kind: Turn['kind'] = 'question'
+  let script: string | null = null
 
-  if (session.pendingFollowUp) {
-    interviewer = interviewerOf(session, session.pendingFollowUp.interviewerId)
-    concern = concernOf(interviewer, session.pendingFollowUp.concernId)
-    question = session.pendingFollowUp.question
-    kind = 'follow-up'
-    session.pendingFollowUp = null
+  if (move.kind === 'follow-up') {
+    concern = followUpConcern(interviewer, move.after)
+    const last = move.after.attempts[move.after.attempts.length - 1]
+    const raw = await callJSON<{ question?: unknown; anchor?: unknown; script?: unknown }>(ctx(session), {
+      key: `followup:${beat(session, move.after)}:${move.after.attempts.length}`,
+      ...followUpPrompt(session, interviewer, move.after, concern),
+    })
+    question = str(raw.question, 400) || `You said "${last.answer.split(/\s+/).slice(0, 8).join(' ')}". Can you take me one level deeper on that?`
+    anchor = verifyAnchor(str(raw.anchor, 200), [last.answer])
+    script = str(raw.script, 40) || null
   } else {
-    const next = selectNext(session)
-    if (!next) return { end: true }
-    interviewer = next.interviewer
-    concern = next.concern
-    const raw = await callJSON<{ question?: unknown; buildsOn?: unknown }>(ctx(session), {
+    concern = move.concern
+    const raw = await callJSON<{ question?: unknown; anchor?: unknown; concernId?: unknown; buildsOn?: unknown; script?: unknown }>(ctx(session), {
       key: `question:${interviewer.id}:${interviewer.questionsAsked + 1}`,
       ...questionPrompt(session, interviewer, concern),
     })
+    const picked = interviewer.concerns.find(c => c.id === str(raw.concernId, 20) && c.state !== 'resolved')
+    if (picked) concern = picked
     question = str(raw.question, 400) || `Tell me more about this: ${concern.text.toLowerCase()}.`
+    anchor = verifyAnchor(str(raw.anchor, 200), answersOf(session))
     const bridge = str(raw.buildsOn, 40)
     buildsOn = bridge && session.panel.some(p => p.name.startsWith(bridge)) && !interviewer.name.startsWith(bridge) ? bridge : null
+    script = str(raw.script, 40) || null
   }
 
   const turn: Turn = {
@@ -225,11 +253,20 @@ export async function startTurn(session: SessionDoc): Promise<{ turn: Turn } | {
     interviewerId: interviewer.id,
     concernId: concern.id,
     question,
-    kind,
+    kind: move.kind,
     buildsOn,
+    anchor,
     attempts: [],
     hint: null,
+    coaching: null,
     createdAt: Date.now(),
+  }
+  if (session.mode === 'demo') {
+    turn.script = script
+    turn.coachable = Boolean(demoFixture(`coach:${beat(session, turn)}`))
+  } else if (session.scenario) {
+    // A staged run names its beats too, so later fixtures follow the path actually taken.
+    turn.script = script
   }
   interviewer.questionsAsked += 1
   session.turns.push(turn)
@@ -252,7 +289,6 @@ interface EvalRaw {
   resolvesActiveConcern?: unknown
   crossResolved?: unknown
   newConcern?: unknown
-  followUp?: unknown
 }
 
 export async function submitAnswer(session: SessionDoc, turnId: string, answerText: string) {
@@ -268,7 +304,7 @@ export async function submitAnswer(session: SessionDoc, turnId: string, answerTe
   const hint = turn.hint
 
   const raw = await callJSON<EvalRaw>(ctx(session), {
-    key: `evaluate:${interviewer.id}:${questionNumber(session, turn)}:${attemptNo}`,
+    key: `evaluate:${beat(session, turn)}:${attemptNo}`,
     ...evaluatePrompt(session, interviewer, concern, turn, answer, hint),
   })
 
@@ -310,7 +346,6 @@ export async function submitAnswer(session: SessionDoc, turnId: string, answerTe
     resolvedConcernIds: resolves ? [concern.id] : [],
     crossResolved,
     newConcern: str(raw.newConcern, 140) || null,
-    followUp: reaction === 'probing' ? str(raw.followUp, 240) || null : null,
   }
 
   interviewer.confidence = result.confidenceAfter
@@ -331,22 +366,12 @@ export async function submitAnswer(session: SessionDoc, turnId: string, answerTe
   turn.attempts.push({ answer, hint, result, at: Date.now() })
 
   const weak = reaction === 'skeptical' || reaction === 'probing'
-  const offerLifeline = weak && !session.lifeline.used && attemptNo === 1
-  if (offerLifeline) session.current = { turnId: turn.id, stage: 'awaiting-decision' }
-  else completeTurn(session, turn, interviewer, result)
+  const coachable = session.mode !== 'demo' || turn.coachable !== false
+  const offerLifeline = weak && !session.lifeline.used && attemptNo === 1 && !turn.hint && coachable
+  session.current = offerLifeline ? { turnId: turn.id, stage: 'awaiting-decision' } : null
 
   await saveSession(session)
   return { result, decision: offerLifeline }
-}
-
-function completeTurn(session: SessionDoc, turn: Turn, interviewer: Interviewer, result: EvalResult) {
-  session.current = null
-  const canFollowUp =
-    result.followUp &&
-    turn.kind !== 'follow-up' &&
-    interviewer.questionsAsked < session.config.maxQuestionsPerInterviewer &&
-    completedTurns(session) < session.config.maxTurns
-  session.pendingFollowUp = canFollowUp ? { interviewerId: interviewer.id, concernId: turn.concernId, question: result.followUp! } : null
 }
 
 export async function moveOn(session: SessionDoc, turnId: string) {
@@ -354,35 +379,48 @@ export async function moveOn(session: SessionDoc, turnId: string) {
   if (!turn || turn.id !== turnId || session.current?.stage !== 'awaiting-decision') {
     throw new EngineError('Nothing to move on from.', 409)
   }
-  const last = turn.attempts[turn.attempts.length - 1]
-  completeTurn(session, turn, interviewerOf(session, turn.interviewerId), last.result)
+  session.current = null
   await saveSession(session)
 }
 
-export async function applyLifeline(session: SessionDoc, turnId: string) {
+export async function applyLifeline(session: SessionDoc, turnId: string): Promise<Coaching> {
   const turn = currentTurn(session)
   if (!turn || turn.id !== turnId) throw new EngineError('That question is no longer active.', 409)
   if (session.lifeline.used) throw new EngineError('Your Lifeline is already used for this interview.', 409)
+  if (session.mode === 'demo' && turn.coachable === false) throw new EngineError("In the demo, Sam's coaching is scripted for other questions.", 409)
   const interviewer = interviewerOf(session, turn.interviewerId)
   const concern = concernOf(interviewer, turn.concernId)
-  const raw = await callJSON<{ encouragement?: unknown; hint?: unknown }>(ctx(session), {
-    key: `coach:${interviewer.id}:${questionNumber(session, turn)}`,
+  const raw = await callJSON<{ encouragement?: unknown; missing?: unknown; outline?: unknown; tip?: unknown }>(ctx(session), {
+    key: `coach:${beat(session, turn)}`,
     ...coachPrompt(session, interviewer, concern, turn),
   })
-  const encouragement = str(raw.encouragement, 80)
-  const hint = str(raw.hint, 400) || 'Slow down and walk through it step by step, using one concrete example from your own project.'
-  turn.hint = hint
+  const coaching: Coaching = {
+    encouragement: str(raw.encouragement, 80) || 'You know more than that answer showed.',
+    missing: arr<string>(raw.missing).map(m => str(m, 120)).filter(Boolean).slice(0, 2),
+    outline: arr<string>(raw.outline).map(o => str(o, 200)).filter(Boolean).slice(0, 3),
+    tip: str(raw.tip, 140),
+  }
+  if (!coaching.outline.length) coaching.outline = ['Walk through it step by step, using one concrete example from your own project.']
+  turn.coaching = coaching
+  // The evaluator reads the coaching as plain text, so it can tell owned answers from read-back talking points.
+  turn.hint = [
+    coaching.missing.length ? `What was missing: ${coaching.missing.join('; ')}.` : '',
+    `Talking points: ${coaching.outline.map((o, i) => `${i + 1}) ${o}`).join(' ')}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
   session.lifeline = { used: true, turnId: turn.id }
   session.current = { turnId: turn.id, stage: 'awaiting-answer' }
   await saveSession(session)
-  return { encouragement, hint }
+  return coaching
 }
 
-// ─── Verdict ─────────────────────────────────────────────────────────────────
+// ─── Results ─────────────────────────────────────────────────────────────────
 
 interface HuddleRaw {
   huddle?: { interviewerId?: unknown; line?: unknown }[]
   coachSummary?: unknown
+  coach?: { wentWell?: unknown; heldBack?: unknown; nextStep?: unknown }
   topPractice?: unknown
   drills?: { title?: unknown; prompt?: unknown; interviewerId?: unknown }[]
   perInterviewer?: { interviewerId?: unknown; takeaway?: unknown; strongest?: unknown }[]
@@ -396,12 +434,18 @@ export async function finish(session: SessionDoc) {
     interviewerOf(session, open.interviewerId).questionsAsked -= 1
   }
   session.current = null
-  session.pendingFollowUp = null
   if (completedTurns(session) === 0) throw new EngineError('Answer at least one question before the panel can deliberate.')
+  session.endedEarly = planNext(session) !== null
 
   const overall = clamp(session.panel.reduce((sum, p) => sum + p.confidence, 0) / session.panel.length)
   const label = verdictFor(overall)
-  const raw = await callJSON<HuddleRaw>(ctx(session), { key: 'huddle', ...huddlePrompt(session, label, overall) })
+  // The demo can end after any answer, so its debrief is assembled from the beats that actually happened.
+  // A staged run does the same while it stayed on script, and asks the live model otherwise.
+  const staged = session.mode === 'demo' ? null : await stagedDebrief(session, label)
+  const raw: HuddleRaw =
+    session.mode === 'demo'
+      ? demoDebrief(session, label)
+      : (staged ?? (await callJSON<HuddleRaw>(ctx(session), { key: 'huddle', ...huddlePrompt(session, label, overall) })))
   const ids = new Set(session.panel.map(p => p.id))
   const pick = (v: unknown) => (ids.has(str(v, 10)) ? str(v, 10) : session.panel[0].id)
 
@@ -416,6 +460,10 @@ export async function finish(session: SessionDoc) {
       .filter(h => h.line)
       .slice(0, 6),
     coachSummary: str(raw.coachSummary, 600),
+    coach:
+      raw.coach && str(raw.coach.wentWell, 260)
+        ? { wentWell: str(raw.coach.wentWell, 260), heldBack: str(raw.coach.heldBack, 260), nextStep: str(raw.coach.nextStep, 260) }
+        : undefined,
     topPractice: arr<string>(raw.topPractice).map(t => str(t, 120)).filter(Boolean).slice(0, 3),
     drills: arr<NonNullable<HuddleRaw['drills']>[number]>(raw.drills)
       .map(d => ({ title: str(d.title, 60), prompt: str(d.prompt, 240), interviewerId: pick(d.interviewerId) }))
@@ -455,7 +503,7 @@ export async function createRematch(parent: SessionDoc, interviewerId: string) {
     sample: false,
     createdAt: Date.now(),
     status: 'ready',
-    config: { maxTurns: Math.min(3, concerns.length + 1), maxQuestionsPerInterviewer: 3 },
+    config: { maxTurns: 3, maxQuestionsPerInterviewer: 3 },
     panel: [
       {
         ...structuredClone(source),
@@ -468,10 +516,12 @@ export async function createRematch(parent: SessionDoc, interviewerId: string) {
     ],
     turns: [],
     current: null,
-    pendingFollowUp: null,
     lifeline: { used: false, turnId: null },
     outcome: null,
+    endedEarly: false,
     recap: recap || null,
+    // Rematches are always fully live, even after a staged run.
+    scenario: null,
   }
   return saveSession(session)
 }

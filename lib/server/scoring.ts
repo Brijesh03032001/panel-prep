@@ -1,5 +1,5 @@
 import { domainLabel } from '../catalog'
-import type { Concern, Interviewer, Outcome, Reaction, SessionDoc, VerdictLabel } from '../types'
+import type { Concern, Interviewer, Outcome, Reaction, SessionDoc, Turn, VerdictLabel } from '../types'
 
 // The model picks a band; the server owns the number, so the face, ring and delta always agree.
 const BAND_DELTAS: Record<Reaction, [number, number, number]> = {
@@ -65,37 +65,59 @@ export function completedTurns(session: SessionDoc) {
   return session.turns.filter(t => t.attempts.length > 0).length
 }
 
-// Whoever has the biggest unresolved doubt asks next. The last speaker is damped and anyone who hasn't
-// spoken yet gets a boost, so everyone on the panel is heard before anyone asks twice.
-export function selectNext(session: SessionDoc): { interviewer: Interviewer; concern: Concern } | null {
+export function lastAnsweredTurn(session: SessionDoc) {
+  return [...session.turns].reverse().find(t => t.attempts.length > 0) ?? null
+}
+
+// A panel conversation, not a quiz: each interviewer opens with one question, then follows up on what the
+// student actually said, before handing over. Whoever is least convinced and has the most open doubts opens next.
+export type NextMove = { kind: 'follow-up'; interviewer: Interviewer; after: Turn } | { kind: 'question'; interviewer: Interviewer; concern: Concern }
+
+export function planNext(session: SessionDoc): NextMove | null {
+  if (completedTurns(session) >= session.config.maxTurns) return null
   const max = session.config.maxQuestionsPerInterviewer
-  const lastSpeaker = session.turns[session.turns.length - 1]?.interviewerId
-  const multi = session.panel.length > 1
+  const last = lastAnsweredTurn(session)
+  const lastWho = last ? session.panel.find(p => p.id === last.interviewerId) : null
+  if (last && lastWho && lastWho.questionsAsked < max) return { kind: 'follow-up', interviewer: lastWho, after: last }
+
   let best: { interviewer: Interviewer; concern: Concern; score: number } | null = null
   for (const p of session.panel) {
-    const open = openConcerns(p)
-    const left = max - p.questionsAsked
-    if (open.length === 0 || left <= 0) continue
-    const score =
-      0.5 * (100 - p.confidence) +
-      8 * open.length +
-      10 * left +
-      (multi && p.questionsAsked === 0 ? 15 : 0) -
-      (multi && p.id === lastSpeaker ? 25 : 0)
-    if (!best || score > best.score) best = { interviewer: p, concern: open[0], score }
+    if (p.questionsAsked > 0) continue
+    const concern = openConcerns(p)[0] ?? p.concerns[0]
+    if (!concern) continue
+    const score = 0.5 * (100 - p.confidence) + 8 * openConcerns(p).length
+    if (!best || score > best.score) best = { interviewer: p, concern, score }
   }
-  return best ? { interviewer: best.interviewer, concern: best.concern } : null
+  return best ? { kind: 'question', interviewer: best.interviewer, concern: best.concern } : null
 }
 
 export function shouldEnd(session: SessionDoc) {
-  if (completedTurns(session) >= session.config.maxTurns) return true
-  if (session.pendingFollowUp) return false
-  return selectNext(session) === null
+  return planNext(session) === null
+}
+
+// The doubt a follow-up continues: a new doubt the last answer raised, else the same one if still open,
+// else this interviewer's next open doubt.
+export function followUpConcern(interviewer: Interviewer, after: Turn): Concern {
+  const result = after.attempts[after.attempts.length - 1]?.result
+  const fresh = result?.newConcern ? interviewer.concerns.find(c => c.text === result.newConcern && c.state !== 'resolved') : null
+  const same = interviewer.concerns.find(c => c.id === after.concernId)
+  return fresh ?? (same && same.state !== 'resolved' ? same : null) ?? openConcerns(interviewer)[0] ?? same ?? interviewer.concerns[0]
+}
+
+// The words a question picks up must really be the student's. Paraphrases are dropped rather than shown as quotes.
+export function verifyAnchor(anchor: string, answers: string[]): string | null {
+  const a = (anchor || '').replace(/^["“'‘]|["”'’]$/g, '').trim()
+  if (a.split(/\s+/).length < 3) return null
+  const n = norm(a)
+  const hit = answers.find(ans => norm(ans).includes(n))
+  if (!hit) return null
+  const words = a.split(/\s+/)
+  return words.length > 18 ? `${words.slice(0, 18).join(' ')}…` : a
 }
 
 export function verdictFor(overall: number): VerdictLabel {
   if (overall >= 70) return 'Interview Ready'
-  if (overall >= 40) return 'Almost There'
+  if (overall >= 40) return 'Rising Star'
   return 'Keep Practicing'
 }
 
@@ -116,6 +138,8 @@ export function computeStats(session: SessionDoc): Outcome['stats'] {
     }
   }
   const byConfidence = [...session.panel].sort((a, b) => a.confidence - b.confidence || a.startConfidence - b.startConfidence)
+  // An area only counts as a strength if that interviewer actually questioned the student.
+  const questioned = byConfidence.filter(p => session.turns.some(t => t.interviewerId === p.id && t.attempts.length > 0))
   return {
     linesTotal: lines.length,
     linesTested: tested.length,
@@ -125,6 +149,6 @@ export function computeStats(session: SessionDoc): Outcome['stats'] {
     biggestGain,
     comeback,
     toughestCritic: byConfidence[0]?.id ?? null,
-    strongestDomain: byConfidence.length ? domainLabel(byConfidence[byConfidence.length - 1].domain) : null,
+    strongestDomain: questioned.length ? domainLabel(questioned[questioned.length - 1].domain) : null,
   }
 }
