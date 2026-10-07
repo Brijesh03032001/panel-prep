@@ -1,20 +1,24 @@
 "use client"
 
-import { BellIcon, BellSlashIcon, FlagIcon, MapTrifoldIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
+import { BellIcon, BellSlashIcon, FlagCheckeredIcon, MapTrifoldIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { usePanel } from '@/lib/store'
-import { Logo, cx } from './primitives'
+import { BackButton, Logo, cx } from './primitives'
 
-export function TopBar({ showProgress = true }: { showProgress?: boolean }) {
+export function TopBar({ showProgress = true, backLabel }: { showProgress?: boolean; backLabel?: string }) {
   const { session, turn, prefs, stage } = usePanel()
   const setPref = usePanel(s => s.setPref)
   const wrapUp = usePanel(s => s.wrapUp)
   const reset = usePanel(s => s.reset)
+  const back = usePanel(s => s.back)
   if (!session) return null
   const answered = session.turns.filter(t => t.attempts.length > 0)
+  const busy = stage === 'evaluating' || stage === 'hinting' || stage === 'finishing'
+  const canEnd = answered.length > 0 && !busy
   const slots = Math.max(session.config.maxTurns, answered.length + (turn && !turn.attempts.length ? 1 : 0))
   return (
-    <header className="relative z-40 flex h-16 items-center gap-4 px-5">
+    <header className="relative z-40 flex h-16 items-center gap-3 px-5">
+      {backLabel && <BackButton onClick={back} label={backLabel} />}
       <button type="button" onClick={reset} aria-label="Back to start" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
         <Logo size="sm" />
       </button>
@@ -62,10 +66,16 @@ export function TopBar({ showProgress = true }: { showProgress?: boolean }) {
           <button
             type="button"
             onClick={() => void wrapUp()}
-            disabled={stage === 'finishing' || !session.turns.some(t => t.attempts.length > 0)}
-            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium text-ink-muted ring-1 ring-white/15 transition hover:text-ink hover:ring-white/30 disabled:opacity-40"
+            disabled={!canEnd}
+            aria-label="End interview and see my results"
+            title={
+              answered.length
+                ? 'Stop here. The panel talks over the answers you gave, and your results, report and Wrapped reflect only those.'
+                : 'Answer at least one question first'
+            }
+            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full bg-gold/12 px-3.5 py-2 text-xs font-semibold text-gold ring-1 ring-gold/40 transition hover:bg-gold/20 disabled:opacity-40"
           >
-            <FlagIcon weight="duotone" className="h-3.5 w-3.5" /> Wrap up
+            <FlagCheckeredIcon weight="duotone" className="h-4 w-4" /> End interview &amp; see my results
           </button>
         )}
       </div>

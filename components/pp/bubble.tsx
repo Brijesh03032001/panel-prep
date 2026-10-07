@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowCounterClockwiseIcon, ArrowElbowDownRightIcon, EyeIcon, SealCheckIcon } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, ArrowElbowDownRightIcon, EyeIcon, QuotesIcon, SealCheckIcon } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Beat } from '@/lib/store'
@@ -64,10 +64,19 @@ export function SpeechBubble({
           <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] font-semibold">
             <span style={{ color: deep(interviewer.color) }}>{interviewer.name.split(' ')[0]}</span>
             <span className="font-normal text-[#5b6180]">{interviewer.title}</span>
-            {turn.kind === 'follow-up' && <Tag icon={<ArrowElbowDownRightIcon weight="bold" className="h-3 w-3" />}>Going deeper</Tag>}
+            {turn.kind === 'follow-up' && <Tag icon={<ArrowElbowDownRightIcon weight="bold" className="h-3 w-3" />}>Follow-up</Tag>}
             {bridge && <Tag icon={<ArrowElbowDownRightIcon weight="bold" className="h-3 w-3" />}>Building on {bridge.name.split(' ')[0]}</Tag>}
             {retrying && !showResult && <Tag icon={<ArrowCounterClockwiseIcon weight="bold" className="h-3 w-3" />}>Second try</Tag>}
           </div>
+          {turn.anchor && !showResult && (
+            <p className="mb-2.5 flex items-start gap-2 rounded-xl bg-[#f1f2f8] px-3 py-2 text-[12.5px] leading-snug text-[#4a5072]">
+              <QuotesIcon weight="duotone" className="mt-px h-3.5 w-3.5 shrink-0" style={{ color: deep(interviewer.color) }} />
+              <span>
+                <span className="font-semibold">{turn.kind === 'follow-up' ? 'You just said' : 'Earlier you said'}</span>{' '}
+                <span className="italic">“{turn.anchor}”</span>
+              </span>
+            </p>
+          )}
           <p
             className={`font-display font-medium leading-snug transition-[font-size] duration-300 ${showResult ? 'text-[15px] text-[#3c4160]' : 'text-[clamp(17px,1.35vw,21px)]'}`}
             aria-live="polite"

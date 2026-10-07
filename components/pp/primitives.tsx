@@ -2,6 +2,7 @@
 
 import { animate, motion, useReducedMotion } from 'framer-motion'
 import {
+  ArrowLeftIcon,
   BrainIcon,
   BrowserIcon,
   BugIcon,
@@ -42,18 +43,21 @@ export function deep(hex: string, f = 0.62) {
 }
 
 export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const s = size === 'lg' ? 36 : size === 'sm' ? 22 : 28
+  const s = size === 'lg' ? 44 : size === 'sm' ? 30 : 38
   return (
     <div className="flex items-center gap-2.5 select-none">
-      <svg width={s} height={s} viewBox="0 0 32 32" aria-hidden>
-        <rect x="1" y="1" width="30" height="30" rx="9" fill="#141833" stroke="rgba(255,255,255,0.14)" />
-        <circle cx="9" cy="13" r="3.2" fill="#A78BFA" />
-        <circle cx="16" cy="11" r="3.2" fill="#2DD4BF" />
-        <circle cx="23" cy="13" r="3.2" fill="#FB923C" />
-        <path d="M8 22.5c2.2-2.6 5-3.9 8-3.9s5.8 1.3 8 3.9" stroke="#FFC627" strokeWidth="2.4" strokeLinecap="round" fill="none" />
-      </svg>
+      {/* The app icon: the panel of three, the student facing them. Its navy matches the stage, so a hairline ring keeps its edge. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.png"
+        alt=""
+        width={s}
+        height={s}
+        draggable={false}
+        className="shrink-0 rounded-[22%] shadow-[0_0_0_1px_rgba(255,255,255,0.12),0_6px_18px_-6px_rgba(0,0,0,0.6)]"
+      />
       <span className={cx('font-display font-semibold tracking-tight', size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-base' : 'text-lg')}>
-        Panel Prep
+        Mockify
       </span>
     </div>
   )
@@ -246,4 +250,22 @@ export function Avatar({ seat, size = 40, expression = 'neutral', ring }: { seat
 export function Kicker({ children, className }: { children: React.ReactNode; className?: string }) {
   const tinted = /(^|\s)text-(?!\[)/.test(className ?? '')
   return <p className={cx('font-mono text-[11px] uppercase tracking-[0.18em]', !tinted && 'text-ink-faint', className)}>{children}</p>
+}
+
+export function BackButton({ onClick, label = 'Back', className }: { onClick: () => void; label?: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={cx(
+        'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-ink-muted ring-1 ring-white/15 transition hover:text-ink hover:ring-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60',
+        className,
+      )}
+    >
+      <ArrowLeftIcon weight="bold" className="h-4 w-4" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  )
 }

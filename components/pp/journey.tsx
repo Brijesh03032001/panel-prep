@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDownIcon, ArrowUpIcon, BarbellIcon, ChartLineUpIcon, FlagCheckeredIcon, MountainsIcon, StackIcon, TableIcon, TrophyIcon, type Icon } from '@phosphor-icons/react'
+import { ArrowDownIcon, ArrowUpIcon, BarbellIcon, ChartLineUpIcon, FlagCheckeredIcon, ShootingStarIcon, StackIcon, TableIcon, TrophyIcon, type Icon } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { domainLabel, VERDICTS } from '@/lib/catalog'
@@ -12,7 +12,7 @@ const READY = 70
 
 const ZONES: { label: VerdictLabel; from: number; to: number; icon: Icon }[] = [
   { label: 'Interview Ready', from: 70, to: 100, icon: TrophyIcon },
-  { label: 'Almost There', from: 40, to: 70, icon: MountainsIcon },
+  { label: 'Rising Star', from: 40, to: 70, icon: ShootingStarIcon },
   { label: 'Keep Practicing', from: 0, to: 40, icon: BarbellIcon },
 ]
 const zoneOf = (v: number) => ZONES.find(z => v >= z.from) ?? ZONES[ZONES.length - 1]
@@ -125,7 +125,7 @@ export function Journey({ history, currentId }: { history: SessionSummary[]; cur
                   <th className="pb-2 font-medium">Session</th>
                   <th className="pb-2 font-medium">Date</th>
                   <th className="pb-2 font-medium">Role</th>
-                  <th className="pb-2 font-medium">Verdict</th>
+                  <th className="pb-2 font-medium">Result</th>
                   <th className="pb-2 text-right font-medium">Confidence</th>
                 </tr>
               </thead>
