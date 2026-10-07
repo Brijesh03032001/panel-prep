@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "panel-prep",
+      "url": "http://localhost:3100",
+      "port": 3100
+    }
+  ]
+}
