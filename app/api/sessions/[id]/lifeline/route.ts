@@ -12,8 +12,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
     const { turnId } = (await req.json()) as { turnId: string }
     const body = await withLock(id, async () => {
       const session = await loadSession(id)
-      const coach = await applyLifeline(session, String(turnId))
-      return { ...coach, session }
+      const coaching = await applyLifeline(session, String(turnId))
+      return { coaching, session }
     })
     return NextResponse.json(body)
   } catch (err) {

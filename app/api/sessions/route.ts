@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { ROLES, LEVELS } from '@/lib/catalog'
 import { createSession, EngineError } from '@/lib/server/engine'
 import { DEMO_RESUME_TEXT, sampleHistory } from '@/lib/server/demo/maya'
+import { stagedScenarioFor } from '@/lib/server/demo/staged'
 import { errorResponse } from '@/lib/server/http'
 import { activeProvider, ProviderUnavailableError } from '@/lib/server/llm'
 import { deleteAllSessions, listSessions, saveSession } from '@/lib/server/repo'
@@ -55,7 +56,8 @@ export async function POST(req: Request) {
       jobDescription: jd,
       sourceName: file instanceof File && file.size > 0 ? file.name.slice(0, 120) : 'Pasted resume',
     }
-    const session = await createSession({ resumeText, setup, mode })
+    // A known pitch resume replays its prepared script (lib/server/demo/staged.ts); everything else runs live.
+    const session = await createSession({ resumeText, setup, mode, scenario: stagedScenarioFor(resumeText) })
     return NextResponse.json({ session })
   } catch (err) {
     return errorResponse(err)
