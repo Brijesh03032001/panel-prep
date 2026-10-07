@@ -1,7 +1,9 @@
 import { domainLabel, REACTIONS, VERDICTS } from './catalog'
 import type { LineStatus, Reaction, SessionDoc, VerdictLabel } from './types'
 
-// Two pages a student will actually read: page 1 is the verdict at a glance, page 2 the details.
+// Page 1 is the whole story at a glance: readiness, the numbers, strengths and what to work on side by side, and
+// Sam's note. Page 2 is the plan and the panel (practice, drills, each interviewer, the Defensibility Map), and
+// then every question in detail, with the student's own words.
 // jsPDF's standard fonts are WinAnsi only, so no arrows or other symbols outside that set.
 
 type RGB = [number, number, number]
@@ -23,7 +25,7 @@ const WHITE: RGB = [255, 255, 255]
 
 const VERDICT_INK: Record<VerdictLabel, RGB> = {
   'Interview Ready': hex('#8a6300'),
-  'Almost There': hex('#b45309'),
+  'Rising Star': hex('#b45309'),
   'Keep Practicing': hex('#6d28d9'),
 }
 const REACTION_INK: Record<Reaction, RGB> = {
@@ -45,17 +47,27 @@ const first = (name: string) => name.split(' ')[0]
 
 export async function downloadCoachingReport(session: SessionDoc) {
   const doc = await buildCoachingReport(session)
-  doc.save(`panel-prep-coaching-report-${session.setup.roleTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`)
+  doc.save(`mockify-coaching-report-${session.setup.roleTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`)
+}
+
+// The app icon for the header. Missing it (offline, or outside a browser) just leaves the wordmark on its own.
+async function loadLogo(): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch('/logo-report.png')
+    return res.ok ? new Uint8Array(await res.arrayBuffer()) : null
+  } catch {
+    return null
+  }
 }
 
 export async function buildCoachingReport(session: SessionDoc) {
-  const { jsPDF } = await import('jspdf')
+  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), loadLogo()])
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
   const M = 44
   const CW = W - M * 2
-  const BOTTOM = H - 56
+  const BOTTOM = H - 50
   const outcome = session.outcome
   const who = (id: string) => session.panel.find(p => p.id === id)
   let y = 0
@@ -135,20 +147,22 @@ export async function buildCoachingReport(session: SessionDoc) {
 
   // ── Header band: the ASU maroon and gold.
   fill(MAROON)
-  doc.rect(0, 0, W, 88, 'F')
+  doc.rect(0, 0, W, 80, 'F')
   fill(GOLD)
-  doc.rect(0, 88, W, 3.5, 'F')
+  doc.rect(0, 80, W, 3.5, 'F')
+  const brandX = logo ? M + 54 : M
+  if (logo) doc.addImage(logo, 'PNG', M, 18, 44, 44)
   font(22, 'bold', WHITE)
-  doc.text('Panel Prep', M, 42)
-  kicker('Coaching report', M, 60, GOLD)
+  doc.text('Mockify', brandX, 39)
+  kicker('Coaching report', brandX, 56, GOLD)
   font(10, 'normal', WHITE)
-  doc.text(`${session.setup.roleTitle} · ${session.setup.level}`, W - M, 38, { align: 'right' })
-  doc.text(new Date(session.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), W - M, 53, { align: 'right' })
+  doc.text(`${session.setup.roleTitle} · ${session.setup.level}`, W - M, 34, { align: 'right' })
+  doc.text(new Date(session.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), W - M, 49, { align: 'right' })
   if (session.mode === 'demo') {
     font(8.5, 'italic', hex('#f3c9d6'))
-    doc.text('Sample session (fictional student)', W - M, 68, { align: 'right' })
+    doc.text('Sample session (fictional student)', W - M, 64, { align: 'right' })
   }
-  y = 116
+  y = 106
 
   if (outcome) {
     const v = outcome.verdict
@@ -156,7 +170,7 @@ export async function buildCoachingReport(session: SessionDoc) {
     const vInk = VERDICT_INK[v.label]
     const vColor = hex(VERDICTS[v.label].color)
 
-    // ── Verdict: a gauge, the label, and where it sits on the scale.
+    // ── Readiness: a gauge, the label, and where it sits on the scale.
     const gx = M + 54
     const gy = y + 56
     arc(gx, gy, 50, 0, 360, LINE, 8)
@@ -168,7 +182,7 @@ export async function buildCoachingReport(session: SessionDoc) {
 
     const tx = M + 136
     const tw = CW - 136
-    kicker('Your coaching verdict', tx, y + 12)
+    kicker('Your interview readiness', tx, y + 12)
     font(26, 'bold', vInk)
     doc.text(v.label, tx, y + 42)
     const blurb = wrap(VERDICTS[v.label].blurb, tw, 10.5)
@@ -177,7 +191,7 @@ export async function buildCoachingReport(session: SessionDoc) {
     const sy = y + 84
     const zones: { label: VerdictLabel; from: number; to: number }[] = [
       { label: 'Keep Practicing', from: 0, to: 40 },
-      { label: 'Almost There', from: 40, to: 70 },
+      { label: 'Rising Star', from: 40, to: 70 },
       { label: 'Interview Ready', from: 70, to: 100 },
     ]
     const sw = Math.min(tw, 330)
@@ -199,7 +213,15 @@ export async function buildCoachingReport(session: SessionDoc) {
     const next = zones.find(z => z.from > v.overall)
     font(9.5, 'bold', INK)
     doc.text(next ? `${next.from - v.overall} points from ${next.label}.` : `Cleared the Interview Ready bar by ${v.overall - 70} points.`, tx, sy + 36)
-    y += 140
+    if (session.endedEarly) {
+      font(8.5, 'italic', MUTED)
+      doc.text(
+        `You ended after ${session.turns.filter(t => t.attempts.length).length} of ${session.config.maxTurns} questions. This report covers only what you answered.`,
+        tx,
+        sy + 50,
+      )
+    }
+    y += session.endedEarly ? 144 : 132
 
     // ── Four numbers.
     const gain = s.comeback ?? s.biggestGain
@@ -220,52 +242,111 @@ export async function buildCoachingReport(session: SessionDoc) {
     kpis.forEach((k, i) => {
       const x = M + i * (kw + gap)
       fill(PAPER)
-      doc.roundedRect(x, y, kw, 54, 8, 8, 'F')
+      doc.roundedRect(x, y, kw, 50, 8, 8, 'F')
       fill(k.color)
-      doc.roundedRect(x, y, 3, 54, 1.5, 1.5, 'F')
-      font(16, 'bold', k.color)
-      doc.text(clip(k.value, 16), x + 12, y + 23)
-      para(wrap(k.label, kw - 20, 8).slice(0, 2), x + 12, y + 29, 8, 'normal', MUTED, 1.3)
+      doc.roundedRect(x, y, 3, 50, 1.5, 1.5, 'F')
+      // Long values (e.g. "DevOps & Cloud") shrink to fit the tile instead of running into the next one.
+      let size = 16
+      font(size, 'bold', k.color)
+      while (size > 10 && doc.getTextWidth(k.value) > kw - 20) font(--size, 'bold', k.color)
+      doc.text(k.value, x + 12, y + 21)
+      para(wrap(k.label, kw - 20, 8).slice(0, 2), x + 12, y + 26, 8, 'normal', MUTED, 1.3)
     })
-    y += 76
+    y += 64
 
-    // ── What went well, and what to focus on next.
-    const colW = (CW - 24) / 2
-    const wins = outcome.perInterviewer
-      .filter(p => p.strongest)
-      .map(p => ({ text: p.strongest, by: who(p.interviewerId) }))
-      .slice(0, 3)
-    const focus = outcome.topPractice.slice(0, 3)
-    const top = y
-    kicker('What went well', M, y + 8, GREEN)
-    kicker('Focus on next', M + colW + 24, y + 8, GOLD_INK)
-    let ly = y + 20
-    wins.forEach(w => {
-      check(M + 6.5, ly + 7, GREEN)
-      const lines = wrap(w.text, colW - 24, 10.5, 'bold')
-      ly += para(lines, M + 20, ly, 10.5, 'bold')
-      if (w.by) {
-        font(8.5, 'normal', FAINT)
-        doc.text(`${first(w.by.name)}, ${w.by.title}`, M + 20, ly + 8)
-        ly += 12
-      }
-      ly += 8
-    })
-    if (s.linesDefended > 0) {
-      check(M + 6.5, ly + 7, GREEN)
-      ly += para(wrap(`You backed up ${s.linesDefended} resume ${s.linesDefended === 1 ? 'line' : 'lines'} under questioning.`, colW - 24, 10.5, 'bold'), M + 20, ly, 10.5, 'bold') + 8
+    // ── Strengths and what to work on: two panels of equal weight, so a student sees what went right first.
+    type Item = { text: string; by: string }
+    const answered = session.turns.filter(t => t.attempts.length)
+    const finalOf = (t: (typeof answered)[number]) => t.attempts[t.attempts.length - 1].result
+    const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
+    // Doubts are written about the student; the report speaks to them.
+    const toYou = (t: string) => t.replace(/\btheir\b/gi, m => (m[0] === 'T' ? 'Your' : 'your')).replace(/\bthey\b/gi, m => (m[0] === 'T' ? 'You' : 'you')).replace(/\bthem\b/g, 'you')
+    let strengths: Item[] = outcome.perInterviewer
+      .filter(f => f.strongest)
+      .map(f => {
+        const p = who(f.interviewerId)
+        const gain = p ? p.confidence - p.startConfidence : 0
+        return { text: f.strongest, by: p ? `${first(p.name)}, ${p.title}${gain > 0 ? `  ·  +${gain} confidence` : ''}` : '' }
+      })
+    const comebackTurn = s.comeback ? answered.find(t => t.id === s.comeback!.turnId) : undefined
+    if (comebackTurn && s.comeback) {
+      const firstTry = comebackTurn.attempts[0].result.reaction
+      strengths.push({
+        text: 'Bounced back after a tough first answer',
+        by: `${first(who(s.comeback.interviewerId)?.name ?? 'Your panel')}: ${firstTry} to ${finalOf(comebackTurn).reaction} on your second try (Q${answered.indexOf(comebackTurn) + 1})`,
+      })
     }
-    let ry = y + 20
-    focus.forEach((f, i) => {
-      badge(M + colW + 24 + 7, ry + 7, i + 1)
-      ry += para(wrap(f, colW - 26, 10.5), M + colW + 24 + 22, ry, 10.5) + 10
-    })
-    y = Math.max(ly, ry, top + 60) + 10
+    if (s.linesDefended > 0) {
+      strengths.push({ text: `Backed up ${s.linesDefended} resume ${s.linesDefended === 1 ? 'line' : 'lines'} under questioning`, by: `${s.linesDefended} of the ${s.linesTested} lines your panel tested` })
+    }
+    strengths = strengths.slice(0, 4)
+    if (!strengths.length) strengths = [{ text: 'You answered under pressure, out loud', by: 'The hardest part to practice, and you did it' }]
+    const work: Item[] = []
+    const seen = new Set<string>()
+    for (const t of [...answered].sort((a, b) => finalOf(a).scoreDelta - finalOf(b).scoreDelta)) {
+      const missed = finalOf(t).criteriaMissed[0]
+      if (!missed || seen.has(t.interviewerId)) continue
+      seen.add(t.interviewerId)
+      work.push({ text: cap(missed), by: `${first(who(t.interviewerId)?.name ?? 'Your panel')} noticed it was missing (Q${answered.indexOf(t) + 1})` })
+      if (work.length >= 2) break
+    }
+    for (const p of session.panel) {
+      if (work.length >= 4) break
+      const doubt = p.concerns.find(c => c.state === 'probed') ?? p.concerns.find(c => c.state === 'open')
+      if (!doubt) continue
+      const asked = answered.some(t => t.interviewerId === p.id)
+      work.push({ text: cap(toYou(doubt.text)), by: `${first(p.name)} ${asked ? 'still wants to hear about this' : 'planned to ask about this next'}` })
+    }
+    if (!work.length) work.push({ text: 'Keep your answers this specific in a real interview', by: 'Your panel had no open doubts left' })
 
-    // ── Sam's note.
-    const note = wrap(outcome.coachSummary || 'Keep practicing out loud with real examples from your own work.', CW - 40, 10.5)
-    const nh = note.length * 10.5 * 1.42 + 44
-    ensure(nh + 10)
+    const gapX = 14
+    const pw = (CW - gapX) / 2
+    const itemLines = (it: Item) => wrap(it.text, pw - 50, 11, 'bold')
+    const itemH = (it: Item) => itemLines(it).length * 11 * 1.3 + 20
+    const ph = 48 + Math.max(strengths.reduce((h, it) => h + itemH(it), 0), work.reduce((h, it) => h + itemH(it), 0))
+    ensure(ph)
+    const panel = (x: number, items: Item[], title: string, subtitle: string, color: RGB, tint: string, mark: 'check' | 'alert') => {
+      fill(hex(tint))
+      doc.roundedRect(x, y, pw, ph, 12, 12, 'F')
+      fill(color)
+      doc.roundedRect(x, y, pw, 4, 2, 2, 'F')
+      font(10, 'bold', color)
+      doc.text(title, x + 18, y + 22, { charSpace: 1 })
+      font(8.5, 'normal', MUTED)
+      doc.text(subtitle, x + 18, y + 34)
+      let iy = y + 46
+      for (const it of items) {
+        const cx = x + 25
+        if (mark === 'check') check(cx, iy + 6, color)
+        else {
+          fill(color)
+          doc.circle(cx, iy + 6, 6.5, 'F')
+          font(9, 'bold', WHITE)
+          doc.text('!', cx, iy + 9.2, { align: 'center' })
+        }
+        const lines = itemLines(it)
+        iy += para(lines, x + 38, iy - 1, 11, 'bold', INK, 1.3)
+        font(8.5, 'normal', MUTED)
+        doc.text(clip(it.by, 64), x + 38, iy + 8)
+        iy += 20
+      }
+    }
+    panel(M, strengths, 'YOUR STRENGTHS', 'What impressed your panel', GREEN, '#e9f8ef', 'check')
+    panel(M + pw + gapX, work, 'WHAT TO WORK ON', 'What your panel is still waiting to hear', hex('#b45309'), '#fff3e3', 'alert')
+    y += ph + 14
+
+    // ── Sam's note: the coach who sat beside the student, writing to them after the panel finished.
+    const student = session.mode === 'demo' ? 'Maya' : null
+    const parts = outcome.coach
+      ? [
+          { label: 'WHAT WENT WELL', color: GREEN, text: outcome.coach.wentWell },
+          ...(outcome.coach.heldBack ? [{ label: `WHAT HELD ${student ? student.toUpperCase() : 'YOU'} BACK`, color: hex('#b45309'), text: outcome.coach.heldBack }] : []),
+          { label: student ? `${student.toUpperCase()}'S NEXT STEP` : 'YOUR NEXT STEP', color: GOLD_INK, text: outcome.coach.nextStep },
+        ].map(p => ({ ...p, lines: wrap(p.text, CW - 40, 10) }))
+      : [{ label: '', color: INK, text: outcome.coachSummary, lines: wrap(outcome.coachSummary || 'Keep practicing out loud with real examples from your own work.', CW - 40, 10.5) }]
+    const partH = (p: (typeof parts)[number]) => (p.label ? 12 : 0) + p.lines.length * 10 * 1.4 + 8
+    const nh = 44 + parts.reduce((h, p) => h + partH(p), 0)
+    ensure(nh)
     fill(hex('#fff6da'))
     doc.roundedRect(M, y, CW, nh, 10, 10, 'F')
     fill(GOLD)
@@ -275,17 +356,40 @@ export async function buildCoachingReport(session: SessionDoc) {
     font(10, 'bold', INK)
     doc.text('S', M + 26, y + 21.5, { align: 'center' })
     font(10, 'bold', GOLD_INK)
-    doc.text("Sam's note", M + 42, y + 17)
+    doc.text(`Sam's note to ${student ?? 'you'}`, M + 42, y + 17)
     font(8, 'normal', MUTED)
-    doc.text('Your coach, fully on your side', M + 42, y + 27)
-    para(note, M + 20, y + 38, 10.5, 'normal', INK, 1.42)
+    doc.text(`Sam coached ${student ?? 'you'} through this interview and wrote this from what was actually said.`, M + 42, y + 27)
+    let py = y + 40
+    for (const part of parts) {
+      if (part.label) {
+        font(7, 'bold', part.color)
+        doc.text(part.label, M + 20, py + 6, { charSpace: 0.8 })
+        py += 12
+      }
+      py += para(part.lines, M + 20, py, 10, 'normal', INK, 1.4) + 8
+    }
     y += nh + 22
+
+    // ── Page 2: the plan and the panel. If Sam's note already spilled onto a new page, keep going there instead of leaving it alone.
+    if (doc.getNumberOfPages() === 1) {
+      doc.addPage()
+      y = M - 8
+    }
+
+    if (outcome.topPractice.length) {
+      section('Practice this week', 90)
+      outcome.topPractice.forEach((t, i) => {
+        badge(M + 7, y + 7, i + 1)
+        y += para(wrap(t, CW - 30, 10.5), M + 22, y, 10.5) + 8
+      })
+      y += 8
+    }
 
     if (outcome.drills.length) {
       section('60-second drills: answer out loud, timer running', 80)
       const dw = (CW - 16) / Math.min(3, outcome.drills.length)
       const blocks = outcome.drills.slice(0, 3).map(d => ({ d, lines: wrap(d.prompt, dw - 22, 9) }))
-      const dh = Math.max(...blocks.map(b => b.lines.length)) * 9 * 1.38 + 32
+      const dh = Math.max(...blocks.map(b => b.lines.length)) * 9 * 1.38 + 26
       ensure(dh + 6)
       blocks.forEach(({ d, lines }, i) => {
         const x = M + i * (dw + 8)
@@ -301,12 +405,8 @@ export async function buildCoachingReport(session: SessionDoc) {
         doc.text(clip(d.title, 34), x + 22, y + 18)
         para(lines, x + 11, y + 26, 9, 'normal', MUTED)
       })
-      y += dh + 20
+      y += dh + 14
     }
-
-    // ── Page 2: the details.
-    doc.addPage()
-    y = M
 
     section('How each interviewer saw you', 170)
     const cw3 = (CW - 16) / 3
@@ -315,7 +415,7 @@ export async function buildCoachingReport(session: SessionDoc) {
       const x = M + i * (cw3 + 8)
       const fb = outcome.perInterviewer.find(f => f.interviewerId === p.id)
       const take = wrap(fb?.takeaway ?? '', cw3 - 24, 9)
-      return { p, x, take, h: 104 + take.length * 9 * 1.38 }
+      return { p, x, take, h: 98 + take.length * 9 * 1.38 }
     })
     const ch = Math.max(...heights.map(c => c.h))
     heights.forEach(({ p, x, take }) => {
@@ -331,46 +431,53 @@ export async function buildCoachingReport(session: SessionDoc) {
       doc.text(clip(`${p.title} · ${domainLabel(p.domain)}`, 40), x + 12, cardTop + 34)
       font(20, 'bold', INK)
       doc.text(`${p.confidence}%`, x + 12, cardTop + 60)
+      const asked = session.turns.some(t => t.interviewerId === p.id && t.attempts.length)
       const delta = p.confidence - p.startConfidence
-      font(8.5, 'bold', delta > 0 ? GREEN : delta < 0 ? STATUS_INK.red : MUTED)
-      doc.text(`${delta > 0 ? '+' : ''}${delta} from ${p.startConfidence}%`, x + cw3 - 12, cardTop + 60, { align: 'right' })
-      const bx = x + 12
-      const bw = cw3 - 24
-      fill(LINE)
-      doc.roundedRect(bx, cardTop + 68, bw, 4, 2, 2, 'F')
-      const a = bx + (Math.min(p.startConfidence, p.confidence) / 100) * bw
-      const b = bx + (Math.max(p.startConfidence, p.confidence) / 100) * bw
-      fill(color.map(k => Math.round(k + (255 - k) * 0.45)) as RGB)
-      doc.rect(a, cardTop + 68, Math.max(0, b - a), 4, 'F')
-      fill(WHITE)
-      stroke(color)
-      doc.setLineWidth(1.3)
-      doc.circle(bx + (p.startConfidence / 100) * bw, cardTop + 70, 3.2, 'FD')
-      fill(color)
-      doc.circle(bx + (p.confidence / 100) * bw, cardTop + 70, 3.8, 'F')
+      if (!asked) {
+        font(8.5, 'italic', MUTED)
+        doc.text("Didn't ask · resume-only score", x + 12, cardTop + 74)
+      } else {
+        font(8.5, 'bold', delta > 0 ? GREEN : delta < 0 ? STATUS_INK.red : MUTED)
+        doc.text(`${delta > 0 ? '+' : ''}${delta} from ${p.startConfidence}%`, x + cw3 - 12, cardTop + 60, { align: 'right' })
+        const bx = x + 12
+        const bw = cw3 - 24
+        fill(LINE)
+        doc.roundedRect(bx, cardTop + 68, bw, 4, 2, 2, 'F')
+        const a = bx + (Math.min(p.startConfidence, p.confidence) / 100) * bw
+        const b = bx + (Math.max(p.startConfidence, p.confidence) / 100) * bw
+        fill(color.map(k => Math.round(k + (255 - k) * 0.45)) as RGB)
+        doc.rect(a, cardTop + 68, Math.max(0, b - a), 4, 'F')
+        fill(WHITE)
+        stroke(color)
+        doc.setLineWidth(1.3)
+        doc.circle(bx + (p.startConfidence / 100) * bw, cardTop + 70, 3.2, 'FD')
+        fill(color)
+        doc.circle(bx + (p.confidence / 100) * bw, cardTop + 70, 3.8, 'F')
+      }
       font(7, 'bold', ink)
       doc.text('DO THIS NEXT', x + 12, cardTop + 90, { charSpace: 0.8 })
       para(take, x + 12, cardTop + 94, 9, 'normal', INK)
     })
-    y = cardTop + ch + 22
+    y = cardTop + ch + 16
 
-    // Defensibility Map: only the lines the panel tested; the rest is a count.
+
+    // ── Defensibility Map: only the lines the panel tested; the rest is a count.
     const tested = (['green', 'yellow', 'red'] as LineStatus[]).flatMap(st => session.resume.lines.filter(l => l.status === st))
     const untested = session.resume.lines.length - tested.length
-    section('Your Defensibility Map', 70)
+    section('Your Defensibility Map', 90)
     font(11, 'bold', INK)
     doc.text(
-      s.linesTested ? `You defended ${s.linesDefended} of ${s.linesTested} lines your panel tested.` : 'Your panel did not test specific lines this time.',
+      s.linesTested ? `You defended ${s.linesDefended} of ${s.linesTested} resume lines your panel tested.` : 'Your panel did not test specific lines this time.',
       M,
       y + 4,
     )
-    y += 16
+    y += 14
     tested.forEach(l => {
       const lines = wrap(l.text, CW - 92, 9.5)
-      const h = lines.length * 9.5 * 1.38 + 8
+      const h = lines.length * 9.5 * 1.32 + 7
       ensure(h + 4)
       pill(STATUS_SHORT[l.status], M, y + 1, STATUS_INK[l.status])
-      para(lines, M + 78, y, 9.5)
+      para(lines, M + 78, y + 1, 9.5, 'normal', INK, 1.32)
       y += h
     })
     if (untested > 0) {
@@ -378,37 +485,43 @@ export async function buildCoachingReport(session: SessionDoc) {
       doc.text(`${untested} more ${untested === 1 ? 'line' : 'lines'} never came up. Your next panel might ask about ${untested === 1 ? 'it' : 'them'}.`, M, y + 6)
       y += 14
     }
-    y += 12
+    y += 14
 
-    // Question by question, condensed: the question, how it landed, one line of feedback.
-    const answered = session.turns.filter(t => t.attempts.length)
+    // ── Question by question: what was asked, the student's own words, how it landed, and what it showed or missed.
     if (answered.length) {
-      section('Question by question', 80)
+      section('Question by question', 140)
       answered.forEach((t, i) => {
         const p = who(t.interviewerId)
-        const final = t.attempts[t.attempts.length - 1].result
+        const final = finalOf(t)
         const firstTry = t.attempts.length > 1 ? t.attempts[0].result : null
         const q = wrap(`“${t.question}”`, CW - 20, 9.5, 'italic')
-        const fbLines = final.feedback ? wrap(clip(final.feedback, 260), CW - 20, 9.5) : []
-        const h = 16 + q.length * 9.5 * 1.38 + (firstTry ? 13 : 0) + fbLines.length * 9.5 * 1.38 + 14
+        const said = wrap(`You said: “${final.evidenceQuote}”`, CW - 20, 9.5, 'italic')
+        const fbLines = final.feedback ? wrap(final.feedback, CW - 20, 9.5) : []
+        const crit = [final.criteriaMet.length ? `Showed: ${final.criteriaMet.join('; ')}` : '', final.criteriaMissed.length ? `Missing: ${final.criteriaMissed.join('; ')}` : '']
+          .filter(Boolean)
+          .join('     ')
+        const critLines = crit ? wrap(crit, CW - 20, 8.5) : []
+        const lh = 9.5 * 1.32
+        const h = 16 + q.length * lh + (firstTry ? 12 : 0) + said.length * lh + 2 + fbLines.length * lh + critLines.length * 8.5 * 1.3 + 14
         ensure(h)
         font(10, 'bold', INK)
         doc.text(`Q${i + 1}  ${p ? `${p.name} · ${p.title}` : 'Interviewer'}${t.kind === 'follow-up' ? '  (follow-up)' : ''}`, M, y + 9)
-        const label = `${REACTIONS[final.reaction].label.toUpperCase()}  ${final.scoreDelta >= 0 ? '+' : ''}${final.scoreDelta}`
-        pill(label, W - M, y, REACTION_INK[final.reaction], 'right')
+        pill(`${REACTIONS[final.reaction].label.toUpperCase()}  ${final.scoreDelta >= 0 ? '+' : ''}${final.scoreDelta}`, W - M, y, REACTION_INK[final.reaction], 'right')
         y += 16
-        y += para(q, M + 10, y, 9.5, 'italic', MUTED)
+        y += para(q, M + 10, y, 9.5, 'italic', MUTED, 1.32)
         if (firstTry) {
           font(8.5, 'normal', GOLD_INK)
-          doc.text(`First try: ${REACTIONS[firstTry.reaction].label} ${firstTry.scoreDelta >= 0 ? '+' : ''}${firstTry.scoreDelta}. Then a Lifeline hint and a stronger second try.`, M + 10, y + 8)
-          y += 13
+          doc.text(`First try: ${REACTIONS[firstTry.reaction].label} ${firstTry.scoreDelta >= 0 ? '+' : ''}${firstTry.scoreDelta}. Then Sam's Lifeline and a second try.`, M + 10, y + 8)
+          y += 12
         }
-        if (fbLines.length) y += para(fbLines, M + 10, y + 2, 9.5)
-        y += 10
+        y += para(said, M + 10, y + 2, 9.5, 'italic', REACTION_INK[final.reaction], 1.32) + 2
+        if (fbLines.length) y += para(fbLines, M + 10, y + 1, 9.5, 'normal', INK, 1.32)
+        if (critLines.length) y += para(critLines, M + 10, y + 3, 8.5, 'normal', MUTED, 1.3)
+        y += 12
         if (i < answered.length - 1) {
           stroke(LINE)
           doc.setLineWidth(0.6)
-          doc.line(M, y - 4, W - M, y - 4)
+          doc.line(M, y - 5, W - M, y - 5)
         }
       })
     }
@@ -430,7 +543,7 @@ export async function buildCoachingReport(session: SessionDoc) {
     doc.line(M, H - 40, W - M, H - 40)
     font(8, 'normal', FAINT)
     doc.text('A practice signal for you alone. Never a hiring decision, never shared with employers.', M, H - 26)
-    doc.text(`Panel Prep · page ${i} of ${pages}`, W - M, H - 26, { align: 'right' })
+    doc.text(`Mockify · page ${i} of ${pages}`, W - M, H - 26, { align: 'right' })
   }
 
   return doc

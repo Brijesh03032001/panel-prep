@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeftIcon, DownloadSimpleIcon, LifebuoyIcon, PlusIcon, ShareNetworkIcon, TrashIcon } from '@phosphor-icons/react'
+import { DownloadSimpleIcon, LifebuoyIcon, PlusIcon, ShareNetworkIcon, TrashIcon } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
@@ -8,11 +8,11 @@ import { VERDICTS } from '@/lib/catalog'
 import { usePanel } from '@/lib/store'
 import type { SessionDoc } from '@/lib/types'
 import { Journey } from '../journey'
-import { Avatar, Kicker, Logo } from '../primitives'
+import { Avatar, BackButton, Kicker, Logo } from '../primitives'
 
 export function WrappedScreen() {
   const { session, history } = usePanel()
-  const go = usePanel(s => s.go)
+  const back = usePanel(s => s.back)
   const reset = usePanel(s => s.reset)
   const loadHistory = usePanel(s => s.loadHistory)
   const card = useRef<HTMLDivElement>(null)
@@ -32,15 +32,15 @@ export function WrappedScreen() {
       const dataUrl = await toPng(card.current, { pixelRatio: 2, cacheBust: true })
       if (share && typeof navigator.share === 'function') {
         const blob = await (await fetch(dataUrl)).blob()
-        const file = new File([blob], 'panel-prep-wrapped.png', { type: 'image/png' })
+        const file = new File([blob], 'mockify-wrapped.png', { type: 'image/png' })
         if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'My Panel Prep Wrapped' })
+          await navigator.share({ files: [file], title: 'My Mockify Wrapped' })
           return
         }
       }
       const a = document.createElement('a')
       a.href = dataUrl
-      a.download = 'panel-prep-wrapped.png'
+      a.download = 'mockify-wrapped.png'
       a.click()
     } catch {
       // Share sheet dismissed or export blocked; nothing to recover.
@@ -59,15 +59,13 @@ export function WrappedScreen() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_40%_50%_at_25%_30%,rgba(140,29,64,0.28),transparent_70%),radial-gradient(ellipse_40%_50%_at_80%_70%,rgba(255,198,39,0.1),transparent_70%)]" />
       <div className="relative z-10 mx-auto max-w-[1240px] px-6 pb-16 lg:px-10">
         <header className="flex h-16 items-center justify-between">
-          <button type="button" onClick={reset} aria-label="Back to start">
-            <Logo size="sm" />
-          </button>
+          <div className="flex items-center gap-3">
+            <BackButton onClick={back} label={complete ? 'Back to results' : 'Home'} />
+            <button type="button" onClick={reset} aria-label="Back to start">
+              <Logo size="sm" />
+            </button>
+          </div>
           <div className="flex items-center gap-2">
-            {complete && (
-              <button type="button" onClick={() => go('verdict')} className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm text-ink-muted ring-1 ring-white/15 transition hover:text-ink">
-                <ArrowLeftIcon weight="bold" className="h-4 w-4" /> Verdict
-              </button>
-            )}
             <button type="button" onClick={reset} className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm text-ink ring-1 ring-white/15 transition hover:ring-white/30">
               <PlusIcon weight="bold" className="h-4 w-4" /> New session
             </button>
@@ -132,7 +130,11 @@ function WrappedCard({ session, innerRef }: { session: SessionDoc; innerRef: Rea
       <div className="pointer-events-none absolute -left-10 top-24 h-40 w-40 rounded-full bg-[#A78BFA]/20 blur-3xl" />
 
       <motion.div variants={item} className="relative flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-gold">Panel Prep Wrapped</span>
+        <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-gold">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={22} height={22} className="rounded-[22%] shadow-[0_0_0_1px_rgba(255,255,255,0.14)]" />
+          Mockify Wrapped
+        </span>
         <span className="text-[11px] text-white/60">{new Date(session.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
       </motion.div>
       <motion.p variants={item} className="relative mt-1 text-xs text-white/60">
@@ -179,7 +181,7 @@ function WrappedCard({ session, innerRef }: { session: SessionDoc; innerRef: Rea
       <motion.div variants={item} className="relative mt-auto">
         <div className="flex items-center justify-between rounded-2xl px-4 py-3.5" style={{ background: `${meta.color}1f`, boxShadow: `inset 0 0 0 1px ${meta.color}55` }}>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-white/60">Verdict</p>
+            <p className="text-[10px] uppercase tracking-wider text-white/60">Readiness</p>
             <p className="font-display text-xl font-semibold" style={{ color: meta.color }}>
               {o.verdict.label}
             </p>

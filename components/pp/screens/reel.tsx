@@ -1,12 +1,12 @@
 "use client"
 
-import { ArrowLeftIcon, DownloadSimpleIcon, LifebuoyIcon, PauseIcon, PlayIcon, SparkleIcon } from '@phosphor-icons/react'
+import { DownloadSimpleIcon, LifebuoyIcon, PauseIcon, PlayIcon, SparkleIcon } from '@phosphor-icons/react'
 import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { downloadCoachingReport } from '@/lib/report-pdf'
 import { usePanel } from '@/lib/store'
 import type { Attempt, SessionDoc, Turn } from '@/lib/types'
-import { Avatar, Kicker, Logo, ReactionChip } from '../primitives'
+import { BackButton, Avatar, Kicker, Logo, ReactionChip } from '../primitives'
 
 interface Moment {
   turn: Turn
@@ -23,6 +23,7 @@ function topMoments(session: SessionDoc): Moment[] {
 export function ReelScreen() {
   const { session, recordings } = usePanel()
   const go = usePanel(s => s.go)
+  const back = usePanel(s => s.back)
   if (!session) return null
   const moments = topMoments(session)
 
@@ -30,11 +31,9 @@ export function ReelScreen() {
     <motion.div className="relative min-h-screen bg-stage" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[480px] bg-[radial-gradient(ellipse_50%_70%_at_50%_0%,rgba(45,212,191,0.14),transparent_70%)]" />
       <div className="relative z-10 mx-auto max-w-[1180px] px-6 pb-16 lg:px-10">
-        <header className="flex h-16 items-center justify-between">
+        <header className="flex h-16 items-center gap-3">
+          <BackButton onClick={back} label="Back to results" />
           <Logo size="sm" />
-          <button type="button" onClick={() => go('verdict')} className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm text-ink-muted ring-1 ring-white/15 transition hover:text-ink">
-            <ArrowLeftIcon weight="bold" className="h-4 w-4" /> Back to verdict
-          </button>
         </header>
 
         <div className="pt-8 text-center">
