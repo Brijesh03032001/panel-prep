@@ -4,10 +4,10 @@ import { create } from 'zustand'
 import { api, type TurnResponse } from './api'
 import { COACH } from './catalog'
 import { sfx } from './sfx'
-import type { AppConfig, EvalResult, SessionDoc, SessionSummary, Turn } from './types'
+import type { AppConfig, Coaching, EvalResult, SessionDoc, SessionSummary, Turn } from './types'
 import { voice } from './voice'
 
-export type Screen = 'home' | 'audit' | 'assemble' | 'interview' | 'huddle' | 'verdict' | 'reel' | 'wrapped'
+export type Screen = 'home' | 'audit' | 'assemble' | 'interview' | 'huddle' | 'results' | 'reel' | 'wrapped'
 export type Stage = 'idle' | 'asking' | 'answering' | 'evaluating' | 'feedback' | 'decision' | 'hinting' | 'finishing'
 
 export interface Beat {
@@ -22,6 +22,9 @@ export interface CoachMsg {
   kind: 'welcome' | 'offer' | 'hint' | 'cheer' | 'thinking'
   title?: string
   text: string
+  coaching?: Coaching
+  /** Coaching asked for before answering, so "missing" describes what the interviewer wants to hear. */
+  before?: boolean
 }
 
 interface Prefs {
@@ -48,12 +51,17 @@ interface State {
   prefs: Prefs
   recordings: Record<string, string>
   history: SessionSummary[] | null
+  /** Set while the student is confirming they want to leave a live interview. */
+  leaving: Screen | null
 
   init: () => Promise<void>
   startDemo: () => Promise<void>
   startLive: (form: FormData) => Promise<void>
   buildPanel: () => Promise<void>
-  go: (screen: Screen) => void
+  go: (screen: Screen, opts?: { replace?: boolean }) => void
+  back: () => void
+  confirmLeave: () => void
+  cancelLeave: () => void
   beginInterview: () => Promise<void>
   doneAsking: () => void
   submit: (answer: string, audioUrl: string | null) => Promise<void>
@@ -82,19 +90,52 @@ function loadPrefs(): Prefs {
   }
 }
 
-function syncUrl(id: string | null) {
+// ─── Navigation ──────────────────────────────────────────────────────────────
+// Every screen is a browser history entry (?s=<session>&v=<screen>), so the browser's back button and the
+// in-app back buttons walk the same path. Screens that can't be revisited (a finished interview) are replaced.
+
+const SCREENS: Screen[] = ['home', 'audit', 'assemble', 'interview', 'huddle', 'results', 'reel', 'wrapped']
+let depth = 0
+
+function writeUrl(id: string | null, screen: Screen, how: 'push' | 'replace', prev?: Screen) {
   try {
     const url = new URL(window.location.href)
     if (id) url.searchParams.set('s', id)
     else url.searchParams.delete('s')
-    window.history.replaceState(null, '', url)
+    if (screen === 'home') url.searchParams.delete('v')
+    else url.searchParams.set('v', screen)
+    if (how === 'push') depth += 1
+    window.history[how === 'push' ? 'pushState' : 'replaceState']({ pp: depth, screen, prev: prev ?? null }, '', url)
   } catch {}
 }
+
+// Where "back" leads from each screen. A finished interview can't be re-entered, so its screens lead home.
+function parentOf(screen: Screen, session: SessionDoc | null): Screen | null {
+  switch (screen) {
+    case 'audit':
+      return 'home'
+    case 'assemble':
+      return session?.kind === 'rematch' ? 'home' : 'audit'
+    case 'interview':
+      return 'assemble'
+    case 'reel':
+      return 'results'
+    case 'wrapped':
+      return session?.outcome ? 'results' : 'home'
+    case 'huddle':
+    case 'results':
+      return 'home'
+    default:
+      return null
+  }
+}
+
+const inInterview = (s: SessionDoc | null) => Boolean(s && !s.outcome && s.turns.length > 0)
 
 export const currentTurnOf = (s: SessionDoc | null) =>
   s?.current ? s.turns.find(t => t.id === s.current!.turnId) ?? null : null
 
-// The verdict is generated as soon as the panel has heard enough, so it's ready by the time the student asks for it.
+// The results are generated as soon as the panel has heard enough, so it's ready by the time the student asks for it.
 let pendingFinish: { id: string; promise: Promise<{ session: SessionDoc }> } | null = null
 function finishSession(id: string) {
   if (pendingFinish?.id !== id) {
@@ -107,11 +148,77 @@ function finishSession(id: string) {
   return pendingFinish.promise
 }
 
-const interviewStart = { turn: null, stage: 'idle' as Stage, beat: null, queued: null, ended: false, coach: null, peekId: null }
+const interviewStart = { turn: null, stage: 'idle' as Stage, beat: null, queued: null, ended: false, coach: null, peekId: null, leaving: null }
+
+const coachFrom = (c: Coaching, before: boolean): CoachMsg => ({ kind: 'hint', title: c.encouragement, text: c.tip, coaching: c, before })
 
 export const usePanel = create<State>((set, get) => {
   const fail = (err: unknown, patch: Partial<State> = {}) =>
     set({ error: err instanceof Error ? err.message : 'Something went wrong.', busy: null, ...patch })
+
+  // Picks a live interview back up exactly where it stood, including a pending Lifeline decision.
+  const restoreInterview = (session: SessionDoc) => {
+    const turn = currentTurnOf(session)
+    if (turn && session.current?.stage === 'awaiting-decision') {
+      const last = turn.attempts[turn.attempts.length - 1]
+      set({
+        turn,
+        stage: 'decision',
+        beat: { id: Date.now(), turnId: turn.id, interviewerId: turn.interviewerId, attempt: turn.attempts.length, result: last.result },
+        coach: offerMessage(last.result.reaction),
+      })
+      return true
+    }
+    if (turn) {
+      set({ turn, stage: 'answering', coach: turn.coaching ? coachFrom(turn.coaching, turn.attempts.length === 0) : null })
+      return true
+    }
+    return false
+  }
+
+  const show = (screen: Screen, how: 'push' | 'replace' = 'push') => {
+    const { session, screen: prev } = get()
+    if (screen !== 'interview') voice.stop()
+    writeUrl(screen === 'home' ? null : session?.id ?? null, screen, how, prev)
+    set({ screen })
+  }
+
+  // The browser moved to another history entry: follow it, unless that would re-enter a finished interview
+  // or silently abandon a live one.
+  const onPopState = async (e: PopStateEvent) => {
+    const state = e.state as { pp?: number; screen?: Screen } | null
+    const params = new URLSearchParams(window.location.search)
+    const target = (state?.screen ?? (params.get('v') as Screen | null) ?? 'home') as Screen
+    if (typeof state?.pp === 'number') depth = state.pp
+    const { screen, session } = get()
+    if (!SCREENS.includes(target) || target === screen) return
+    if (screen === 'interview' && inInterview(session) && target !== 'interview') {
+      writeUrl(session!.id, 'interview', 'push', target)
+      return set({ leaving: target })
+    }
+    if (target === 'home') {
+      voice.stop()
+      return set({ screen: 'home', session: null, ...interviewStart })
+    }
+    const id = params.get('s')
+    let s = session
+    if (id && id !== session?.id) {
+      try {
+        s = (await api.getSession(id)).session
+        set({ session: s, ...interviewStart })
+      } catch {
+        return show('home', 'replace')
+      }
+    }
+    if (s?.outcome && (target === 'audit' || target === 'assemble' || target === 'interview' || target === 'huddle')) return show('home', 'replace')
+    if (target === 'interview') {
+      set({ screen: 'interview' })
+      if (s && !restoreInterview(s)) void get().beginInterview()
+      return
+    }
+    voice.stop()
+    set({ screen: target })
+  }
 
   const applyTurn = (res: TurnResponse) => {
     if ('turn' in res) {
@@ -133,8 +240,10 @@ export const usePanel = create<State>((set, get) => {
     prefs: DEFAULT_PREFS,
     recordings: {},
     history: null,
+    leaving: null,
 
     async init() {
+      window.addEventListener('popstate', e => void onPopState(e))
       const prefs = loadPrefs()
       voice.enabled = prefs.voice
       sfx.enabled = prefs.sound
@@ -142,47 +251,46 @@ export const usePanel = create<State>((set, get) => {
       const config = await api.config().catch(() => ({ live: false, tts: false, stt: false, provider: null }))
       voice.server = config.tts
       set({ config })
-      const id = new URLSearchParams(window.location.search).get('s')
-      if (!id) return set({ booted: true })
+      const params = new URLSearchParams(window.location.search)
+      const id = params.get('s')
+      const wanted = params.get('v') as Screen | null
+      if (!id) {
+        const screen: Screen = wanted === 'wrapped' ? 'wrapped' : 'home'
+        writeUrl(null, screen, 'replace')
+        return set({ screen, booted: true })
+      }
       try {
         const { session } = await api.getSession(id)
         set({ session })
+        let screen: Screen
         if (session.status === 'audited') {
-          set({ screen: 'audit' })
+          screen = 'audit'
           void get().buildPanel()
-        } else if (session.status === 'ready') set({ screen: 'assemble' })
-        else if (session.status === 'complete') set({ screen: 'verdict' })
+        } else if (session.status === 'ready') screen = wanted === 'audit' ? 'audit' : 'assemble'
+        else if (session.status === 'complete') screen = wanted === 'reel' || wanted === 'wrapped' ? wanted : 'results'
+        else if (wanted === 'assemble' || wanted === 'audit') screen = wanted
         else {
-          const turn = currentTurnOf(session)
-          set({ screen: 'interview' })
-          if (turn && session.current?.stage === 'awaiting-decision') {
-            const last = turn.attempts[turn.attempts.length - 1]
-            set({
-              turn,
-              stage: 'decision',
-              beat: { id: Date.now(), turnId: turn.id, interviewerId: turn.interviewerId, attempt: turn.attempts.length, result: last.result },
-              coach: offerMessage(last.result.reaction),
-            })
-          } else if (turn) {
-            set({ turn, stage: 'answering', coach: turn.hint ? { kind: 'hint', text: turn.hint } : null })
-          }
-          else void get().beginInterview()
+          screen = 'interview'
+          if (!restoreInterview(session)) void get().beginInterview()
         }
+        set({ screen })
+        writeUrl(session.id, screen, 'replace')
       } catch {
-        syncUrl(null)
+        writeUrl(null, 'home', 'replace')
       }
       set({ booted: true })
     },
 
     async startDemo() {
       sfx.unlock()
+      voice.unlock()
       set({ busy: "Reading Maya's resume…", error: null })
       try {
         const form = new FormData()
         form.append('mode', 'demo')
         const { session } = await api.createSession(form)
-        set({ session, screen: 'audit', busy: null, ...interviewStart, recordings: {} })
-        syncUrl(session.id)
+        set({ session, busy: null, ...interviewStart, recordings: {} })
+        show('audit')
         void get().buildPanel()
       } catch (err) {
         fail(err)
@@ -191,12 +299,13 @@ export const usePanel = create<State>((set, get) => {
 
     async startLive(form) {
       sfx.unlock()
+      voice.unlock()
       form.append('mode', 'live')
       set({ busy: 'Reading your resume…', error: null })
       try {
         const { session } = await api.createSession(form)
-        set({ session, screen: 'audit', busy: null, ...interviewStart, recordings: {} })
-        syncUrl(session.id)
+        set({ session, busy: null, ...interviewStart, recordings: {} })
+        show('audit')
         void get().buildPanel()
       } catch (err) {
         fail(err)
@@ -214,16 +323,41 @@ export const usePanel = create<State>((set, get) => {
       }
     },
 
-    go(screen) {
-      if (screen !== 'interview') voice.stop()
-      set({ screen })
+    go(screen, opts) {
+      show(screen, opts?.replace ? 'replace' : 'push')
     },
+
+    back() {
+      const { screen, session } = get()
+      if (screen === 'interview' && inInterview(session)) return set({ leaving: 'assemble' })
+      const parent = parentOf(screen, session)
+      if (!parent) return
+      const st = window.history.state as { pp?: number; prev?: Screen } | null
+      // When the previous history entry is the parent, step back for real so the browser stack stays honest.
+      if (st?.prev === parent && (st.pp ?? 0) > 0) return window.history.back()
+      if (parent === 'home') return get().reset()
+      show(parent, 'replace')
+    },
+
+    confirmLeave() {
+      const target = get().leaving ?? 'assemble'
+      voice.stop()
+      set({ leaving: null, coach: null })
+      if (target === 'home') return get().reset()
+      show(target, 'replace')
+    },
+
+    cancelLeave: () => set({ leaving: null }),
 
     async beginInterview() {
       const s = get().session
       if (!s) return
       sfx.unlock()
-      set({ screen: 'interview', ...interviewStart, coach: { kind: 'welcome', text: welcomeText(s) } })
+      voice.unlock()
+      if (get().screen !== 'interview') show('interview')
+      set({ ...interviewStart, coach: { kind: 'welcome', text: welcomeText(s) } })
+      // Coming back to an interview already in progress: pick up the open question or decision as it was.
+      if (s.current && restoreInterview(s)) return
       try {
         applyTurn(await api.startTurn(s.id))
       } catch (err) {
@@ -279,13 +413,14 @@ export const usePanel = create<State>((set, get) => {
       const { session, turn } = get()
       if (!session || !turn || session.lifeline.used) return
       voice.stop()
-      set({ stage: 'hinting', coach: { kind: 'thinking', text: 'Sam is thinking about how to help…' } })
+      const before = turn.attempts.length === 0
+      set({ stage: 'hinting', coach: { kind: 'thinking', text: 'Sam is reading your answer and your resume…' } })
       try {
         const res = await api.lifeline(session.id, turn.id)
         const updated = res.session.turns.find(t => t.id === turn.id) ?? turn
-        set({ session: res.session, turn: updated, beat: null, stage: 'answering', coach: { kind: 'hint', title: res.encouragement, text: res.hint } })
+        set({ session: res.session, turn: updated, beat: null, stage: 'answering', coach: coachFrom(res.coaching, before) })
         sfx.pop()
-        void voice.speak(`${res.encouragement} ${res.hint}`, COACH.voice)
+        void voice.speak(coachSpeech(res.coaching), COACH.voice)
       } catch (err) {
         fail(err, { stage: get().beat ? 'decision' : 'answering' })
       }
@@ -315,7 +450,8 @@ export const usePanel = create<State>((set, get) => {
       set({ stage: 'finishing', busy: 'The panel is conferring…', coach: null })
       try {
         const { session } = await finishSession(s.id)
-        set({ session, screen: 'huddle', busy: null })
+        set({ session, busy: null })
+        show('huddle', 'replace')
       } catch (err) {
         fail(err, { stage: 'answering' })
       }
@@ -327,8 +463,8 @@ export const usePanel = create<State>((set, get) => {
       set({ busy: 'Setting up your rematch…', error: null })
       try {
         const { session } = await api.rematch(s.id, interviewerId)
-        set({ session, screen: 'assemble', busy: null, ...interviewStart })
-        syncUrl(session.id)
+        set({ session, busy: null, ...interviewStart })
+        show('assemble')
       } catch (err) {
         fail(err)
       }
@@ -336,8 +472,8 @@ export const usePanel = create<State>((set, get) => {
 
     reset() {
       voice.stop()
-      syncUrl(null)
-      set({ session: null, screen: 'home', ...interviewStart, error: null, busy: null })
+      set({ session: null, ...interviewStart, error: null, busy: null })
+      show('home')
     },
 
     async deleteSession() {
@@ -380,8 +516,13 @@ function offerMessage(reaction?: string): CoachMsg {
   return {
     kind: 'offer',
     title: reaction === 'skeptical' ? 'That one slipped. It happens.' : "Good start. There's more in you.",
-    text: 'Want a hint and a second try? You get one Lifeline per interview. I give hints, never answers.',
+    text: "Want a second try? With your one Lifeline, I'll show you what was missing and how to answer, using your own resume.",
   }
+}
+
+function coachSpeech(c: Coaching) {
+  const points = c.outline.map((o, i) => `${['First', 'Then', 'Finally'][i] ?? 'And'}, ${o.replace(/\.$/, '')}.`).join(' ')
+  return `${c.encouragement} Here's how to answer. ${points}`
 }
 
 function welcomeText(s: SessionDoc) {

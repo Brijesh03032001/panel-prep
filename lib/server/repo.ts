@@ -4,6 +4,15 @@ import type { SessionDoc, SessionSummary } from '../types'
 
 export class NotFoundError extends Error {}
 
+// The middle readiness level was renamed from "Almost There" to "Rising Star"; older saved sessions are read with the new name.
+const LABEL_RENAMES: Record<string, SessionSummary['verdict']> = { 'Almost There': 'Rising Star' }
+const currentLabel = (label: string | null | undefined) => (label ? (LABEL_RENAMES[label] ?? label) : null) as SessionSummary['verdict']
+
+function upgrade(doc: SessionDoc): SessionDoc {
+  if (doc.outcome) doc.outcome.verdict.label = currentLabel(doc.outcome.verdict.label) ?? doc.outcome.verdict.label
+  return doc
+}
+
 export async function saveSession(doc: SessionDoc) {
   const db = await getDb()
   const row = {
@@ -27,7 +36,7 @@ export async function loadSession(id: string): Promise<SessionDoc> {
   const db = await getDb()
   const [row] = await db.select().from(sessions).where(eq(sessions.id, id)).limit(1)
   if (!row) throw new NotFoundError(`Session ${id} not found`)
-  return JSON.parse(row.doc) as SessionDoc
+  return upgrade(JSON.parse(row.doc) as SessionDoc)
 }
 
 export async function deleteSession(id: string) {
@@ -54,7 +63,7 @@ export async function listSessions(limit = 50): Promise<SessionSummary[]> {
         mode: doc.mode,
         sample: doc.sample,
         roleTitle: r.roleTitle,
-        verdict: (r.verdict as SessionSummary['verdict']) ?? null,
+        verdict: currentLabel(r.verdict),
         overall: r.overall,
         domains: doc.panel.map(p => ({ domain: p.domain, confidence: p.confidence })),
       }
