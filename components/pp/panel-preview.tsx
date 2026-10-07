@@ -1,6 +1,6 @@
 "use client"
 
-import { MicrophoneIcon, MountainsIcon } from '@phosphor-icons/react'
+import { MicrophoneIcon, ShootingStarIcon } from '@phosphor-icons/react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { LINE_STATUS, SEATS, VERDICTS } from '@/lib/catalog'
@@ -159,14 +159,23 @@ export function PanelPreview() {
       <div
         ref={frame}
         className="relative aspect-[3/2] w-full overflow-hidden rounded-[28px] bg-stage shadow-[0_50px_120px_-40px_rgba(0,0,0,0.95)] ring-1 ring-white/15"
-        aria-label="A preview of a Panel Prep interview: an interviewer asks about a resume line, the student answers, and the panel's confidence updates."
+        aria-label="A preview of a Mockify interview: an interviewer asks about a resume line, the student answers, and the panel's confidence updates."
         role="img"
       >
         <RoomBackdrop dim={0.08} />
         {geo && (
           <>
             {panel.map(p => (
-              <SeatFigure key={p.id} geo={geo} interviewer={p} active={speaker?.id === p.id} dimmed={Boolean(speaker) && speaker?.id !== p.id} speaking={speaker?.id === p.id && phase === 'ask'} />
+              <SeatFigure
+                key={p.id}
+                geo={geo}
+                interviewer={p}
+                active={speaker?.id === p.id}
+                dimmed={Boolean(speaker) && speaker?.id !== p.id}
+                speaking={speaker?.id === p.id && phase === 'ask'}
+                status={speaker?.id !== p.id ? null : phase === 'ask' ? 'speaking' : phase === 'answer' ? 'listening' : null}
+                synthetic
+              />
             ))}
             <RoomBackdrop front={geo} dim={0.08} />
             {panel.map(p => (
@@ -226,8 +235,8 @@ export function PanelPreview() {
           <p className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-faint">Panel confidence</p>
           <div className="mt-1 flex items-end justify-between gap-2">
             <AnimatedNumber value={overall} suffix="%" className="font-display text-[32px] font-semibold leading-none" />
-            <span className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: VERDICTS['Almost There'].color }}>
-              <MountainsIcon weight="duotone" className="h-3.5 w-3.5" /> Almost There
+            <span className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: VERDICTS['Rising Star'].color }}>
+              <ShootingStarIcon weight="duotone" className="h-3.5 w-3.5" /> Rising Star
             </span>
           </div>
           <div className="mt-2.5 flex h-1.5 gap-[2px]">

@@ -116,7 +116,7 @@ export function HuddleScreen() {
             exit={{ opacity: 0, y: -8 }}
             className="font-display mt-2 flex items-center justify-center gap-3 text-[clamp(24px,2.4vw,34px)] font-semibold [text-shadow:0_2px_20px_rgba(0,0,0,0.6)]"
           >
-            {done ? 'They have reached a verdict.' : 'The panel is comparing notes'}
+            {done ? 'The panel has made up its mind.' : 'The panel is comparing notes'}
             {!done && (
               <span className="inline-flex gap-1.5">
                 {session.panel.map((p, i) => (
@@ -206,7 +206,7 @@ export function HuddleScreen() {
                   <SealCheckIcon weight="duotone" className="relative h-7 w-7" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="font-display text-[17px] font-semibold leading-tight">Your verdict is sealed</p>
+                  <p className="font-display text-[17px] font-semibold leading-tight">Your results are ready</p>
                   {lines.length > 0 ? (
                     <button type="button" onClick={() => setReadOpen(!readOpen)} className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-ink-muted transition hover:text-ink" aria-expanded={readOpen}>
                       <ChatsCircleIcon weight="duotone" className="h-4 w-4" />
@@ -217,8 +217,8 @@ export function HuddleScreen() {
                     <p className="mt-1 text-[13px] text-ink-muted">It comes from their final confidence.</p>
                   )}
                 </div>
-                <button type="button" onClick={() => go('verdict')} className="gold-btn inline-flex shrink-0 items-center gap-2 rounded-2xl px-5 py-3.5 text-[15px] font-semibold">
-                  Reveal the verdict <ArrowRightIcon weight="bold" className="h-4 w-4" />
+                <button type="button" onClick={() => go('results', { replace: true })} className="gold-btn inline-flex shrink-0 items-center gap-2 rounded-2xl px-5 py-3.5 text-[15px] font-semibold">
+                  See my results <ArrowRightIcon weight="bold" className="h-4 w-4" />
                 </button>
               </div>
             </motion.div>

@@ -1,8 +1,9 @@
 "use client"
 
-import { LifebuoyIcon, XIcon } from '@phosphor-icons/react'
+import { LifebuoyIcon, ListNumbersIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { CoachMsg } from '@/lib/store'
+import type { Coaching as CoachingData } from '@/lib/types'
 
 export function CoachMark({ size = 40, glow = false }: { size?: number; glow?: boolean }) {
   return (
@@ -43,7 +44,7 @@ export function CoachCard({ coach, onDismiss }: { coach: CoachMsg | null; onDism
                 Sam · Coach
                 {coach.kind === 'hint' && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-medium">
-                    <LifebuoyIcon weight="duotone" className="h-3 w-3" /> Hint only
+                    <LifebuoyIcon weight="duotone" className="h-3 w-3" /> Lifeline
                   </span>
                 )}
               </p>
@@ -61,6 +62,56 @@ export function CoachCard({ coach, onDismiss }: { coach: CoachMsg | null; onDism
         </motion.aside>
       )}
     </AnimatePresence>
+  )
+}
+
+// What was missing, then talking points drawn from the student's own resume. It sits in the answer dock, right
+// where the student is answering, and the student still says it in their own words.
+export function CoachingStrip({ coaching, before, onDismiss }: { coaching: CoachingData; before: boolean; onDismiss: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      className="overflow-hidden"
+      aria-live="polite"
+    >
+      <div className="relative mb-2.5 rounded-2xl border border-gold/25 bg-gradient-to-r from-[#2a2412]/90 to-[#1d1a33]/80 px-3 py-2.5 pr-9">
+        <button type="button" onClick={onDismiss} aria-label="Hide Sam's talking points" className="absolute right-2 top-2 rounded-md p-1 text-ink-faint transition hover:text-ink">
+          <XIcon weight="bold" className="h-3.5 w-3.5" />
+        </button>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          <span className="flex items-center gap-2">
+            <CoachMark size={20} glow />
+            <span className="text-[12.5px] font-semibold text-gold">Sam · {coaching.encouragement}</span>
+          </span>
+          {coaching.tip && <span className="text-[11px] italic text-ink-faint">{coaching.tip}</span>}
+        </div>
+        <div className="mt-1.5 grid gap-x-5 gap-y-1.5 sm:grid-cols-[0.85fr_1.5fr]">
+          {coaching.missing.length > 0 && (
+            <div>
+              <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#F59E0B]">
+                <WarningCircleIcon weight="duotone" className="h-3.5 w-3.5" /> {before ? 'What they want to hear' : 'What was missing'}
+              </p>
+              <p className="mt-0.5 text-[12px] leading-snug text-ink-muted">{coaching.missing.join(' · ')}</p>
+            </div>
+          )}
+          <div>
+            <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gold">
+              <ListNumbersIcon weight="duotone" className="h-3.5 w-3.5" /> How to answer, from your resume
+            </p>
+            <ol className="mt-0.5 space-y-0.5">
+              {coaching.outline.map((o, i) => (
+                <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-ink">
+                  <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gold/20 font-mono text-[9px] font-semibold text-gold">{i + 1}</span>
+                  {o}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </motion.div>
   )
 }
 

@@ -7,21 +7,25 @@ import { useRecorder } from '@/hooks/use-recorder'
 import { demoAnswer, DEMO_STUDENT } from '@/lib/demo'
 import { usePanel } from '@/lib/store'
 import { voice } from '@/lib/voice'
+import { CoachingStrip } from './coach'
 import { cx } from './primitives'
 import { Waveform } from './waveform'
 
 const AUTO_ADVANCE_MS = 6000
 
 export function AnswerDock() {
-  const { session, turn, stage, queued, ended, config, prefs, peekId } = usePanel()
+  const { session, turn, stage, queued, ended, config, prefs, peekId, coach } = usePanel()
   const submit = usePanel(s => s.submit)
   const takeLifeline = usePanel(s => s.takeLifeline)
   const moveOn = usePanel(s => s.moveOn)
   const advance = usePanel(s => s.advance)
   const wrapUp = usePanel(s => s.wrapUp)
-  const rec = useRecorder(Boolean(config?.stt))
+  // A staged pitch run keeps the browser's live captions instead of waiting for Whisper: its reactions are scripted.
+  const serverSTT = Boolean(config?.stt) && !session?.scenario
+  const rec = useRecorder(serverSTT)
   const [text, setText] = useState('')
   const [demoPlaying, setDemoPlaying] = useState(false)
+  const [stripHidden, setStripHidden] = useState(false)
   const audioUrl = useRef<string | null>(null)
   const area = useRef<HTMLTextAreaElement>(null)
   const demoTimer = useRef<number | null>(null)
@@ -30,12 +34,17 @@ export function AnswerDock() {
   const isDemo = session?.mode === 'demo'
   const scripted = isDemo && session && turn ? demoAnswer(session, turn) : null
   const lifelineLeft = session ? !session.lifeline.used : false
+  const coachable = !isDemo || turn?.coachable !== false
   const canType = stage === 'answering' && rec.state === 'idle' && !demoPlaying
   const recording = rec.state === 'recording'
+  const transcribing = rec.state === 'transcribing'
+  const coaching = coach?.coaching && (stage === 'answering' || stage === 'evaluating') ? coach.coaching : null
+  const nextWho = queued ? session?.panel.find(p => p.id === queued.interviewerId) : null
 
   useEffect(() => {
     setText('')
     audioUrl.current = null
+    setStripHidden(false)
   }, [turn?.id, turn?.attempts.length])
 
   useEffect(() => {
@@ -92,7 +101,9 @@ export function AnswerDock() {
         {stage === 'decision' ? (
           <Row key="decision">
             <p className="flex-1 px-2 text-sm text-ink-muted">
-              {lifelineLeft ? 'That answer left a doubt. Take a hint and try again, or keep going.' : 'Keep going. You can come back to this in a rematch.'}
+              {lifelineLeft
+                ? "That answer left a doubt. Use your Lifeline: Sam shows what was missing and how to answer, then you try again."
+                : 'Keep going. You can come back to this in a rematch.'}
             </p>
             <button type="button" onClick={() => void moveOn()} className="rounded-xl px-4 py-2.5 text-sm font-medium text-ink-muted ring-1 ring-white/15 transition hover:text-ink hover:ring-white/30">
               Move on
@@ -112,19 +123,22 @@ export function AnswerDock() {
               ) : (
                 <>
                   Up next:{' '}
-                  <span className="font-semibold" style={{ color: session?.panel.find(p => p.id === queued!.interviewerId)?.color }}>
-                    {session?.panel.find(p => p.id === queued!.interviewerId)?.name}
+                  <span className="font-semibold" style={{ color: nextWho?.color }}>
+                    {nextWho?.name.split(' ')[0]}
                   </span>
-                  {queued!.kind === 'follow-up' ? ' with a follow-up' : ''}
+                  {queued!.kind === 'follow-up' ? ', following up on your answer' : queued!.anchor || queued!.buildsOn ? ', picking up on what you said' : ', with a new question'}
                 </>
               )}
             </p>
             <button type="button" onClick={ended ? () => void wrapUp() : advance} className="gold-btn inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold">
-              {ended ? 'Hear the verdict' : 'Next question'} <ArrowRightIcon weight="bold" className="h-4 w-4" />
+              {ended ? 'See my results' : 'Next question'} <ArrowRightIcon weight="bold" className="h-4 w-4" />
             </button>
           </Row>
         ) : (
           <motion.div key="input" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <AnimatePresence initial={false}>
+              {coaching && !stripHidden && <CoachingStrip coaching={coaching} before={Boolean(coach?.before)} onDismiss={() => setStripHidden(true)} />}
+            </AnimatePresence>
             <div className="flex items-end gap-2.5">
               <button
                 type="button"
@@ -149,7 +163,7 @@ export function AnswerDock() {
                 <textarea
                   ref={area}
                   rows={1}
-                  value={recording && rec.interim ? `${text} ${rec.interim}`.trim() : text}
+                  value={(recording || transcribing) && rec.interim ? `${text} ${rec.interim}`.trim() : text}
                   onChange={e => setText(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -195,17 +209,23 @@ export function AnswerDock() {
                 </button>
               )}
               <p className="text-[11px] text-ink-faint">
-                {rec.error ?? (waitingForNext ? 'Preparing the next question…' : statusLine(stage, Boolean(config?.stt)))}
+                {rec.error ?? (waitingForNext ? 'Listening to your answer and preparing the follow-up…' : statusLine(stage, serverSTT, recording, transcribing))}
               </p>
+              {coaching && stripHidden && (
+                <button type="button" onClick={() => setStripHidden(false)} className="text-[11px] font-medium text-gold underline-offset-2 hover:underline">
+                  Show Sam&apos;s talking points
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void takeLifeline()}
-                disabled={!lifelineLeft || stage !== 'answering' || demoPlaying || recording}
+                disabled={!lifelineLeft || !coachable || stage !== 'answering' || demoPlaying || recording}
+                aria-label={lifelineLeft ? 'Use your Lifeline' : 'Lifeline used'}
                 className={cx(
                   'ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
                   lifelineLeft ? 'text-gold ring-1 ring-gold/35 hover:bg-gold/10 disabled:opacity-40' : 'text-ink-faint ring-1 ring-white/10',
                 )}
-                title="One hint per interview. Hints, never answers."
+                title={coachable ? "One per interview: Sam shows what's missing and how to answer, using your own resume." : "In the demo, Sam's coaching is scripted for other questions."}
               >
                 <LifebuoyIcon weight="duotone" className="h-3.5 w-3.5" />
                 {lifelineLeft ? 'Lifeline · 1 left' : 'Lifeline used'}
@@ -255,16 +275,18 @@ function AdvanceTimer({ paused, onDone, keyId }: { paused: boolean; onDone: () =
 
 function placeholder(stage: string, name: string | undefined, recording: boolean, transcribing: boolean, demo: boolean) {
   if (recording) return 'Listening…'
-  if (transcribing) return 'Turning your answer into text…'
+  if (transcribing) return 'Polishing your transcript…'
   if (stage === 'asking') return `${name ?? 'The interviewer'} is asking…`
   if (stage === 'evaluating') return 'The panel is weighing your answer…'
-  if (stage === 'hinting') return 'Sam is preparing a hint…'
+  if (stage === 'hinting') return 'Sam is reading your answer and your resume…'
   if (stage === 'answering') return demo ? 'Type an answer, or play the scripted one below' : 'Speak or type your answer. Enter to send.'
   return ''
 }
 
-function statusLine(stage: string, serverSTT: boolean) {
-  if (stage === 'answering') return serverSTT ? 'Voice is transcribed by ASU CreateAI. Think out loud and use real examples.' : 'Think out loud and use real examples from your own work.'
+function statusLine(stage: string, serverSTT: boolean, recording: boolean, transcribing: boolean) {
+  if (recording) return serverSTT ? 'Live captions as you speak. ASU CreateAI writes the final transcript when you stop.' : 'Live captions as you speak.'
+  if (transcribing) return 'ASU CreateAI is writing the final transcript…'
+  if (stage === 'answering') return 'Think out loud and use real examples from your own work.'
   if (stage === 'evaluating') return 'Checking your answer against what this interviewer was looking for…'
   return ''
 }
