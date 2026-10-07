@@ -6,10 +6,14 @@ import { useEffect, useRef, useState } from 'react'
 import { domainLabel } from '@/lib/catalog'
 import { sfx } from '@/lib/sfx'
 import { usePanel } from '@/lib/store'
+import type { Interviewer } from '@/lib/types'
 import { voice } from '@/lib/voice'
 import { DomainIcon, Kicker } from '../primitives'
 import { NamePlate, RoomBackdrop, SeatFigure, usePreloadSeats, useStageGeometry } from '../stage'
 import { TopBar } from '../top-bar'
+
+// Interviewers introduce themselves the way real ones do: who they are, never why they were picked.
+const introOf = (p: Interviewer) => p.intro || `Hi, I'm ${p.name}, ${p.title}.`
 
 const VIGNETTE = 'radial-gradient(ellipse at 50% 35%, transparent 20%, rgba(11,14,31,0.75) 75%)'
 
@@ -24,11 +28,18 @@ export function AssembleScreen() {
   usePreloadSeats()
 
   const panel = session?.panel ?? []
+  const resuming = Boolean(session?.turns.length)
 
   useEffect(() => {
     if (!panel.length) return
+    // Coming back to an interview in progress: everyone is already seated, no second round of introductions.
+    if (resuming) {
+      skipped.current = true
+      setShown(panel.length)
+      return
+    }
     let cancelled = false
-    const intro = (p: (typeof panel)[number]) => `I'm ${p.name.split(' ')[0]}, ${p.title}. ${p.joinReason}`
+    const intro = introOf
     panel.forEach(p => voice.prefetch(intro(p), p.voice))
     ;(async () => {
       await new Promise(r => setTimeout(r, 500))
@@ -81,7 +92,7 @@ export function AssembleScreen() {
                     {i < shown && (
                       <motion.div
                         className="absolute z-30"
-                        style={{ left: geo.seatX(p.seat) - cardW / 2, width: cardW, bottom: geo.h - geo.figureTop(p.seat) + 14 }}
+                        style={{ left: Math.max(12, Math.min(geo.w - cardW - 12, geo.seatX(p.seat) - cardW / 2)), width: cardW, bottom: geo.h - geo.figureTop(p.seat) + 14 }}
                         initial={{ opacity: 0, y: 14, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.25 }}
@@ -91,8 +102,7 @@ export function AssembleScreen() {
                             <DomainIcon domain={p.domain} className="h-3.5 w-3.5" />
                             {domainLabel(p.domain)}
                           </span>
-                          <p className="mt-2.5 text-[11px] font-medium uppercase tracking-wider text-ink-faint">Joining because</p>
-                          <p className="mt-1 text-[14px] leading-snug text-ink">{p.joinReason}</p>
+                          <p className="mt-2.5 text-[14px] leading-snug text-ink">“{introOf(p)}”</p>
                         </div>
                       </motion.div>
                     )}
@@ -105,7 +115,7 @@ export function AssembleScreen() {
       </div>
 
       <div className="absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-[#0b0e1f]/85 to-transparent">
-        <TopBar showProgress={false} />
+        <TopBar showProgress={false} backLabel={session.kind === 'rematch' ? 'Home' : 'Back to audit'} />
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-72 bg-[radial-gradient(ellipse_60%_100%_at_50%_0%,rgba(11,14,31,0.9),transparent)]" />
@@ -113,7 +123,7 @@ export function AssembleScreen() {
         <Kicker className="text-gold">
           {session.kind === 'rematch'
             ? 'The Comeback · only the doubts still open'
-            : `Your panel · chosen from your resume's gaps for ${session.setup.roleTitle}`}
+            : `Your interview panel · ${session.setup.roleTitle} · ${session.setup.level}`}
         </Kicker>
         <h1 className="font-display mt-2 text-[clamp(24px,2.4vw,34px)] font-semibold [text-shadow:0_2px_20px_rgba(0,0,0,0.5)]">
           {session.kind === 'rematch' ? `Rematch with ${panel[0]?.name.split(' ')[0]}` : 'Meet the people who will question you'}
@@ -129,14 +139,14 @@ export function AssembleScreen() {
                   <MicrophoneIcon weight="duotone" className="h-3.5 w-3.5 text-ink" /> Speak or type your answers
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <LifebuoyIcon weight="duotone" className="h-3.5 w-3.5 text-gold" /> One Lifeline: a hint, never the answer
+                  <LifebuoyIcon weight="duotone" className="h-3.5 w-3.5 text-gold" /> One Lifeline: Sam shows what&apos;s missing and how to answer
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <EyeIcon weight="duotone" className="h-3.5 w-3.5 text-ink" /> Click anyone to peek behind the panel
                 </span>
               </div>
               <button type="button" onClick={() => void beginInterview()} className="gold-btn inline-flex items-center gap-2 rounded-2xl px-7 py-4 text-[15px] font-semibold">
-                Start the interview <ArrowRightIcon weight="bold" className="h-4.5 w-4.5" />
+                {resuming ? 'Resume interview' : 'Start the interview'} <ArrowRightIcon weight="bold" className="h-4.5 w-4.5" />
               </button>
             </motion.div>
           ) : (

@@ -29,17 +29,10 @@ import { PanelPreview } from '../panel-preview'
 import { Kicker, Logo, RoleIcon, cx } from '../primitives'
 
 const STEPS = [
-  { icon: FileArrowUpIcon, color: '#A78BFA', title: 'Drop in your resume', text: 'It is split into claims, and your contact details are removed before any AI reads it.' },
-  { icon: UsersThreeIcon, color: '#2DD4BF', title: 'Meet a panel built for you', text: 'Three interviewers, chosen from the gaps in your resume and the role you want.' },
-  { icon: MicrophoneIcon, color: '#FB923C', title: 'Defend every line, out loud', text: 'Answer by voice or text. Each resume line turns green, yellow or red as it is tested.' },
-  { icon: TrophyIcon, color: '#FFC627', title: 'Leave with a plan', text: 'A verdict, a highlight reel, 60-second drills and a coaching report to keep.' },
-]
-
-const PROOF = [
-  { n: '11', label: 'interviewer specialties' },
-  { n: '3', label: 'interviewers, built from your gaps' },
-  { n: '1', label: 'Lifeline: a hint, never the answer' },
-  { n: '0', label: 'employers who ever see it' },
+  { icon: FileArrowUpIcon, color: '#A78BFA', title: 'Upload your resume', text: 'Pick the role you want. Your contact details are removed before anything is analyzed.' },
+  { icon: UsersThreeIcon, color: '#2DD4BF', title: 'Meet your interview panel', text: 'Three AI interviewers, each an expert in a different area of the role, chosen for what your resume claims.' },
+  { icon: MicrophoneIcon, color: '#FB923C', title: 'Answer out loud', text: 'Each interviewer asks, listens, then follows up on what you actually said. Every answer moves their score live.' },
+  { icon: TrophyIcon, color: '#FFC627', title: 'Get your results and a plan', text: 'See how ready you are, which resume lines you backed up, and exactly what to practice next.' },
 ]
 
 export function HomeScreen() {
@@ -111,27 +104,27 @@ export function HomeScreen() {
           </nav>
         </header>
 
-        <section className="grid items-center gap-14 pb-14 pt-4 lg:min-h-[calc(100vh-80px)] lg:grid-cols-[0.95fr_1.1fr] lg:pb-20">
+        <section className="grid items-center gap-14 pb-14 pt-4 lg:min-h-[calc(100vh-80px)] lg:grid-cols-[1fr_1.05fr] lg:pb-20">
           <div>
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
               <span className="inline-flex items-center gap-2 rounded-full bg-white/[0.05] py-1 pl-1.5 pr-3.5 text-[13px] text-ink-muted ring-1 ring-white/10">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold/15 text-gold">
                   <SparkleIcon weight="duotone" className="h-3.5 w-3.5" />
                 </span>
-                A flight simulator for job interviews
+                AI mock interviews for students
               </span>
-              <h1 className="font-display mt-6 text-[clamp(42px,5.2vw,74px)] font-semibold leading-[1.0]">
-                Know your own work before someone <span className="text-gradient-gold">asks you about it.</span>
+              <h1 className="font-display mt-6 text-[clamp(36px,3.7vw,56px)] font-semibold leading-[1.04]">
+                Practice your interview with <span className="text-gradient-gold">an AI panel that has read your resume.</span>
               </h1>
-              <p className="mt-6 max-w-[540px] text-[18px] leading-relaxed text-ink-muted">
-                Three expert interviewers read your resume, find the lines you cannot back up yet, and question you out loud. A coach helps you learn. You leave knowing
-                exactly what you can defend.
+              <p className="mt-6 max-w-[560px] text-[18px] leading-relaxed text-ink-muted">
+                Upload your resume and pick the role you want. Three AI interviewers ask about what you wrote, follow up on what you say, and score every answer live. A
+                coach helps when you get stuck, and you leave knowing what to practice before the real interview.
               </p>
             </motion.div>
 
             <motion.div className="mt-9 flex flex-wrap items-center gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
               <button type="button" onClick={toForm} className="gold-btn inline-flex items-center gap-2 rounded-2xl px-6 py-4 text-[15px] font-semibold">
-                Build my panel <ArrowRightIcon weight="bold" className="h-4 w-4" />
+                Start my mock interview <ArrowRightIcon weight="bold" className="h-4 w-4" />
               </button>
               <button
                 type="button"
@@ -143,18 +136,18 @@ export function HomeScreen() {
                   <PlayIcon weight="fill" className="h-4 w-4" />
                 </span>
                 <span className="text-left">
-                  <span className="block text-sm font-semibold">Watch Maya&apos;s session</span>
-                  <span className="block text-xs text-ink-muted">Sample resume · 3 minutes</span>
+                  <span className="block text-sm font-semibold">Try the demo</span>
+                  <span className="block text-xs text-ink-muted">Maya&apos;s sample resume · 2 minutes</span>
                 </span>
               </button>
             </motion.div>
 
             <motion.ul className="mt-10 flex flex-wrap gap-x-6 gap-y-2.5 text-[13px] text-ink-muted" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }}>
               <li className="inline-flex items-center gap-2">
-                <LockKeyIcon weight="duotone" className="h-[18px] w-[18px] text-good" /> Contact details removed first
+                <MicrophoneIcon weight="duotone" className="h-[18px] w-[18px] text-[#FB923C]" /> Answer by voice or by typing
               </li>
               <li className="inline-flex items-center gap-2">
-                <ShieldCheckIcon weight="duotone" className="h-[18px] w-[18px] text-[#2DD4BF]" /> Runs on ASU CreateAI
+                <LockKeyIcon weight="duotone" className="h-[18px] w-[18px] text-good" /> Contact details removed first
               </li>
               <li className="inline-flex items-center gap-2">
                 <EyeSlashIcon weight="duotone" className="h-[18px] w-[18px] text-[#A78BFA]" /> Never shared with employers
@@ -166,15 +159,6 @@ export function HomeScreen() {
             <PanelPreview />
           </motion.div>
         </section>
-
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[22px] bg-line ring-1 ring-line md:grid-cols-4">
-          {PROOF.map(p => (
-            <div key={p.label} className="bg-[#0f1229] px-6 py-5">
-              <p className="font-display text-[34px] font-semibold leading-none text-gradient-gold">{p.n}</p>
-              <p className="mt-2 text-sm text-ink-muted">{p.label}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       <section id="how" className="relative z-10 mx-auto max-w-[1320px] scroll-mt-6 px-6 pb-8 pt-24 lg:px-10">
@@ -215,14 +199,14 @@ export function HomeScreen() {
         <div className="relative mx-auto grid max-w-[1320px] items-start gap-12 px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-10">
           <div className="lg:sticky lg:top-12 lg:pt-6">
             <Kicker className="text-gold">Your turn</Kicker>
-            <h2 className="font-display mt-3 text-[clamp(30px,3.4vw,46px)] font-semibold leading-[1.05]">Build your panel in under a minute.</h2>
+            <h2 className="font-display mt-3 text-[clamp(30px,3.4vw,46px)] font-semibold leading-[1.05]">Set up your mock interview in under a minute.</h2>
             <p className="mt-4 max-w-md text-[16px] leading-relaxed text-ink-muted">Two students applying for the same job can face different panels. Yours is built from your own resume.</p>
             <ul className="mt-8 space-y-4">
               {[
                 { icon: UsersThreeIcon, color: '#A78BFA', title: 'A panel built for you', text: 'Domain experts who join because of a specific line on your resume.' },
                 { icon: MapTrifoldIcon, color: '#2DD4BF', title: 'A live Defensibility Map', text: 'See which lines you can back up, as you answer.' },
-                { icon: LifebuoyIcon, color: '#FFC627', title: 'Tough panel, friendly coach', text: 'Sam offers one Lifeline per interview: a hint, never the answer.' },
-                { icon: FilePdfIcon, color: '#FB923C', title: 'A report you will actually read', text: 'Two pages: your verdict, your wins, and three things to practice.' },
+                { icon: LifebuoyIcon, color: '#FFC627', title: 'Tough panel, friendly coach', text: 'One Lifeline per interview: Sam shows what was missing and how to answer, from your own resume.' },
+                { icon: FilePdfIcon, color: '#FB923C', title: 'A report you will actually read', text: 'Your strengths, what to work on, a plan for the week, and every question with feedback.' },
               ].map(f => (
                 <li key={f.title} className="flex gap-3.5">
                   <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${f.color}1c`, color: f.color }}>
@@ -245,7 +229,7 @@ export function HomeScreen() {
             className="glass relative rounded-[28px] p-6 lg:p-8"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-display text-xl font-semibold">Build your panel</h3>
+              <h3 className="font-display text-xl font-semibold">Your mock interview</h3>
               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">About 15 min</span>
             </div>
 
@@ -386,7 +370,7 @@ export function HomeScreen() {
             <button type="button" onClick={submit} disabled={!ready} className="gold-btn mt-7 flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-[15px] font-semibold">
               {live ? (
                 <>
-                  Build my panel <ArrowRightIcon weight="bold" className="h-4 w-4" />
+                  Start my mock interview <ArrowRightIcon weight="bold" className="h-4 w-4" />
                 </>
               ) : (
                 <>
@@ -397,12 +381,12 @@ export function HomeScreen() {
             <p className="mt-3 flex items-start gap-2 text-[11.5px] leading-relaxed text-ink-faint">
               <ShieldCheckIcon weight="duotone" className="mt-px h-4 w-4 shrink-0 text-good/80" />
               {live
-                ? `Contact details are removed before ${config?.provider ?? 'the AI'} reads your resume. Sessions stay in this app's own database and you can delete them anytime. Practice signals only, never shared with employers.`
+                ? "Contact details are removed before the AI reads your resume. Sessions stay in this app's own database and you can delete them anytime. Practice signals only, never shared with employers."
                 : 'No AI key is configured, so live sessions are off. The demo replays a recorded session through the real engine.'}
             </p>
             {!live && (
               <button type="button" onClick={() => void startDemo()} disabled={Boolean(busy)} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-gold transition hover:opacity-80">
-                <PlayIcon weight="fill" className="h-3.5 w-3.5" /> Watch Maya&apos;s session instead
+                <PlayIcon weight="fill" className="h-3.5 w-3.5" /> Try the demo with Maya&apos;s resume instead
               </button>
             )}
           </motion.div>
@@ -410,7 +394,7 @@ export function HomeScreen() {
       </section>
 
       <footer className="relative z-10 mx-auto flex max-w-[1320px] flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-6 text-xs text-ink-faint lg:px-10">
-        <p>Panel Prep · ASU EdPlus · prHACKtical 2026</p>
+        <p>Mockify · ASU EdPlus · prHACKtical 2026</p>
         <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="inline-flex items-center gap-1.5 transition hover:text-ink">
           <ArrowDownIcon weight="bold" className="h-3.5 w-3.5 rotate-180" /> Back to top
         </button>
