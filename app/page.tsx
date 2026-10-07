@@ -9,7 +9,7 @@ import { HomeScreen } from '@/components/pp/screens/home'
 import { HuddleScreen } from '@/components/pp/screens/huddle'
 import { InterviewScreen } from '@/components/pp/screens/interview'
 import { ReelScreen } from '@/components/pp/screens/reel'
-import { VerdictScreen } from '@/components/pp/screens/verdict'
+import { ResultsScreen } from '@/components/pp/screens/results'
 import { WrappedScreen } from '@/components/pp/screens/wrapped'
 import { usePanel } from '@/lib/store'
 
@@ -58,7 +58,7 @@ export default function Page() {
         {booted && screen === 'assemble' && <AssembleScreen key="assemble" />}
         {booted && screen === 'interview' && <InterviewScreen key="interview" />}
         {booted && screen === 'huddle' && <HuddleScreen key="huddle" />}
-        {booted && screen === 'verdict' && <VerdictScreen key="verdict" />}
+        {booted && screen === 'results' && <ResultsScreen key="results" />}
         {booted && screen === 'reel' && <ReelScreen key="reel" />}
         {booted && screen === 'wrapped' && <WrappedScreen key="wrapped" />}
       </AnimatePresence>

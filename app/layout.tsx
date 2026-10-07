@@ -7,7 +7,7 @@ const grotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-grotesk' }
 const jetbrains = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains' })
 
 export const metadata: Metadata = {
-  title: 'Panel Prep',
+  title: 'Mockify',
   description: 'A flight simulator for interviews: face a panel built from your own resume, with a coach on your side.',
 }
 

@@ -148,7 +148,7 @@
     background-clip: text;
     color: transparent;
   }
-  /* The verdict debrief: the app's navy, one step lighter than the interview room. */
+  /* The results debrief: the app's navy, one step lighter than the interview room. */
   .lift-bg {
     background: linear-gradient(180deg, #1c2149 0%, #181c42 38%, #15193b 100%);
   }
@@ -175,6 +175,21 @@
   to {
     transform: translateY(100%);
   }
+}
+
+/* Seated interviewers are never perfectly still. */
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-0.35%) scale(1.004);
+  }
+}
+.breathe {
+  animation: breathe 5.5s ease-in-out infinite;
+  transform-origin: 50% 100%;
 }
 
 @keyframes ripple {
