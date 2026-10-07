@@ -3,6 +3,7 @@ import path from 'node:path'
 import { Groq } from 'groq-sdk'
 import { createAIConfigured, createAIQuery, RateLimitError, type ModelTier } from './createai'
 import { demoFixture } from './demo/maya'
+import { stagedFixture, stagedPause } from './demo/staged'
 import type { Mode } from '../types'
 
 export class ProviderUnavailableError extends Error {}
@@ -14,7 +15,7 @@ export interface LLMCall {
   temperature?: number
 }
 
-const FAST_TASKS = ['audit', 'question:', 'evaluate:', 'coach:']
+const FAST_TASKS = ['audit', 'question:', 'followup:', 'evaluate:', 'coach:']
 const tierFor = (key: string): ModelTier => (FAST_TASKS.some(p => key.startsWith(p)) ? 'fast' : 'deep')
 
 export function activeProvider(): string | null {
@@ -76,12 +77,18 @@ function record(sessionId: string, key: string, value: unknown) {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-export async function callJSON<T>(ctx: { mode: Mode; sessionId: string }, call: LLMCall): Promise<T> {
+export async function callJSON<T>(ctx: { mode: Mode; sessionId: string; scenario?: string | null }, call: LLMCall): Promise<T> {
   if (ctx.mode === 'demo') {
     const fixture = demoFixture(call.key)
     if (!fixture) throw new Error(`The demo script doesn't cover this step (${call.key}). Start a live session to go off-script.`)
     await sleep(500 + Math.random() * 600)
     return structuredClone(fixture) as T
+  }
+  // A staged run replays its script where it has one, and goes live everywhere else.
+  const staged = ctx.scenario ? stagedFixture(ctx.scenario, call.key) : undefined
+  if (staged) {
+    await stagedPause(call.key)
+    return structuredClone(staged) as T
   }
   let lastError: unknown
   for (let attempt = 0; attempt < 2; attempt++) {

@@ -1,4 +1,4 @@
-import type { AnswerEvent, AppConfig, SessionDoc, SessionSummary, Turn } from './types'
+import type { AnswerEvent, AppConfig, Coaching, SessionDoc, SessionSummary, Turn } from './types'
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}))
@@ -26,7 +26,7 @@ export const api = {
   startTurn: (id: string) => post(`/api/sessions/${id}/turn`).then(r => json<TurnResponse>(r)),
   moveOn: (id: string, turnId: string) => post(`/api/sessions/${id}/next`, { turnId }).then(r => json<TurnResponse>(r)),
   lifeline: (id: string, turnId: string) =>
-    post(`/api/sessions/${id}/lifeline`, { turnId }).then(r => json<{ encouragement: string; hint: string; session: SessionDoc }>(r)),
+    post(`/api/sessions/${id}/lifeline`, { turnId }).then(r => json<{ coaching: Coaching; session: SessionDoc }>(r)),
   finish: (id: string) => post(`/api/sessions/${id}/finish`).then(r => json<{ session: SessionDoc }>(r)),
   rematch: (id: string, interviewerId: string) => post(`/api/sessions/${id}/rematch`, { interviewerId }).then(r => json<{ session: SessionDoc }>(r)),
 

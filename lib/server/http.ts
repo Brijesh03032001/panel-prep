@@ -17,7 +17,7 @@ export function errorResponse(err: unknown) {
     : err instanceof ProviderUnavailableError ? 503
     : err instanceof RateLimitError ? 429
     : 500
-  if (status === 500) console.error('[panel-prep]', err)
+  if (status === 500) console.error('[mockify]', err)
   return NextResponse.json({ error: status === 500 ? `The panel hit a snag: ${errorMessage(err)}` : errorMessage(err) }, { status })
 }
 
