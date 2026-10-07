@@ -74,6 +74,6 @@ export const LINE_STATUS = {
 
 export const VERDICTS = {
   'Interview Ready': { color: '#FFC627', blurb: 'You can defend your work under real questioning.' },
-  'Almost There': { color: '#F59E0B', blurb: 'Strong foundations. A few lines still need your story behind them.' },
+  'Rising Star': { color: '#F59E0B', blurb: 'Strong foundations and climbing fast. A few lines still need your story behind them.' },
   'Keep Practicing': { color: '#A78BFA', blurb: 'Every expert started here. Your path to ready is below.' },
 } as const
